@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  des-http:
+    build: .
+    image: des-http:local
+    container_name: des-http
+    ports:
+      - "8000:8000"
+    environment:
+      DES_BACKEND: "local"
+      DES_BASE_DIR: "/data/des"
+      DES_N_BITS: "8"
+      # S3 backend example:
+      # DES_BACKEND: "s3"
+      # DES_S3_BUCKET: "my-des-bucket"
+      # DES_S3_REGION: "us-east-1"
+      # DES_S3_ENDPOINT_URL: "https://s3.example.com"
+      # DES_S3_PREFIX: "des/"
+      # Multi-zone backend example:
+      # DES_BACKEND: "multi_s3"
+      # DES_ZONES_CONFIG: "/config/zones.yaml"
+    volumes:
+      - ./example_data/des:/data/des:ro
+      # - ./config/zones.yaml:/config/zones.yaml:ro
+    restart: unless-stopped

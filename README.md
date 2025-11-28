@@ -20,6 +20,10 @@ DES shards support optional compression (zstd or lz4) configured via `Compressio
 
 S3 retrievers use a three-step range-GET pattern (footer → index → payload) and keep an in-memory index cache to reduce repeated S3 calls. The HTTP retriever exposes Prometheus metrics at `/metrics` covering retrieval counts, latency, and S3 range call counters.
 
+## Docker / Ops
+
+A Dockerfile is provided to run the HTTP retriever (`des_core.http_retriever:app`) via uvicorn. `docker-compose.yml` runs it locally with a bind-mounted shard directory. Minimal K8s manifests live under `k8s/` (Deployment + Service). Plain `requirements.txt` / `requirements-dev.txt` are available for environments that need them.
+
 ---
 
 # 🔥 Najważniejsze cechy

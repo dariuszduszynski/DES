@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: des-http
+  labels:
+    app: des-http
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: des-http
+  template:
+    metadata:
+      labels:
+        app: des-http
+    spec:
+      containers:
+        - name: des-http
+          image: des-http:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DES_BACKEND
+              value: "local"
+            - name: DES_BASE_DIR
+              value: "/data/des"
+            - name: DES_N_BITS
+              value: "8"
+            # Example S3 config (commented):
+            # - name: DES_BACKEND
+            #   value: "s3"
+            # - name: DES_S3_BUCKET
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: des-s3-secrets
+            #       key: bucket
+            # - name: DES_S3_REGION
+            #   value: "us-east-1"
+            # - name: DES_S3_ENDPOINT_URL
+            #   value: "https://s3.example.com"
+            # - name: DES_S3_PREFIX
+            #   value: "des/"
+            # Example multi_s3:
+            # - name: DES_BACKEND
+            #   value: "multi_s3"
+            # - name: DES_ZONES_CONFIG
+            #   value: "/config/zones.yaml"
+          volumeMounts:
+            - name: des-data
+              mountPath: /data/des
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: des-data
+          emptyDir: {} # replace with PersistentVolumeClaim in production
