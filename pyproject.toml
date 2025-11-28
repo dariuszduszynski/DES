@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Core routing utilities for Datavision Easy Store (DES)."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { file = "LICENSE" }
+license = "MIT"
 authors = [
   { name = "DES Team" }
 ]
