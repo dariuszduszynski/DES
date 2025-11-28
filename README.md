@@ -12,7 +12,8 @@ Ten projekt jest odświeżoną i uproszczoną wersją poprzedniego DES – pozba
 
 The `des_core.routing.locate_shard` function deterministically maps `(uid, created_at)` to a `ShardLocation` without any database lookups. `ShardLocation` bundles the normalized UID, `date_dir` (`YYYYMMDD`), computed `shard_index`, hex form `shard_hex`, and the final object key `YYYYMMDD/HH.des`. The pure functions in `des_core.routing` define the routing contract used by packers, retrievers, and routers.
 
-# Ы"� Najwa��niejsze cechy
+---
+
 # 🔥 Najważniejsze cechy
 
 * **Zero bazy danych** po stronie DES
