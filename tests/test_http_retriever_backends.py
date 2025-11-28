@@ -91,6 +91,21 @@ def test_load_settings_from_env_s3(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.s3_bucket == "bucket"
 
 
+def test_metrics_endpoint_exposed(tmp_path: Path) -> None:
+    settings = http_retriever.HttpRetrieverSettings(
+        backend="local",
+        base_dir=tmp_path,
+    )
+    app = http_retriever.create_app(settings)
+    client = TestClient(app)
+
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "des_retrievals_total" in body
+    assert "des_retrieval_seconds" in body
+
+
 class FakeMultiS3Retriever:
     def __init__(self, zones, n_bits):
         self.zones = zones

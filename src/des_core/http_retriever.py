@@ -19,6 +19,8 @@ from .multi_s3_retriever import MultiS3ShardRetriever
 from .retriever import LocalRetrieverConfig, LocalShardRetriever, make_local_config
 from .s3_retriever import S3Config, S3ShardRetriever, S3ShardStorage
 from .zone_config_loader import load_zones_config
+from .metrics import DES_RETRIEVALS_TOTAL, DES_RETRIEVAL_SECONDS, DES_S3_RANGE_CALLS_TOTAL
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 
 class HttpRetrieverSettings(BaseModel):
@@ -62,6 +64,11 @@ def create_app(settings: HttpRetrieverSettings) -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/metrics")
+    async def metrics() -> Response:
+        payload = generate_latest()
+        return Response(content=payload, media_type=CONTENT_TYPE_LATEST)
 
     @app.get("/files/{uid}")
     async def get_file(uid: str, created_at: str) -> Response:

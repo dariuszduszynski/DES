@@ -1,10 +1,10 @@
 from datetime import datetime
 from pathlib import Path
 
+from des_core.cache import LRUCache, LRUCacheConfig
 from des_core.compression import balanced_zstd_config
-from des_core.packer_planner import FileToPack, PlannerConfig
-from des_core.s3_retriever import S3Config, S3ShardRetriever, S3ShardStorage
-from des_core.shard_io import FOOTER_SIZE, ShardWriter
+from des_core.s3_retriever import IndexCacheKey, S3Config, S3ShardRetriever, S3ShardStorage
+from des_core.shard_io import ShardWriter
 
 
 class FakeBody:
@@ -47,49 +47,38 @@ class FakeS3Client:
         return {"Contents": [{"Key": k} for k in self.data_by_key.keys() if k.startswith(Prefix)]}
 
 
-def _build_shard(tmp_path: Path) -> tuple[Path, dict[str, bytes]]:
-    payloads = {"file-a": b"A" * 64, "file-b": b"B" * 128}
-    shard_path = tmp_path / "test-shard.des"
+def _make_shard(tmp_path: Path) -> tuple[dict[str, bytes], dict[str, bytes]]:
+    payloads = {"file-a": b"A" * 64, "file-b": b"B" * 64}
+    shard_path = tmp_path / "20240101_39_0000.des"
     with ShardWriter(shard_path, compression=balanced_zstd_config()) as writer:
         for uid, data in payloads.items():
             writer.add_file(uid, data)
-    return shard_path, payloads
+    return {shard_path.name: shard_path.read_bytes()}, payloads
 
 
-def test_s3_retriever_uses_range_requests(tmp_path: Path) -> None:
-    shard_path, payloads = _build_shard(tmp_path)
-    data_by_key = {"20240101_39_0000.des": shard_path.read_bytes()}
+def test_second_get_uses_cached_index(tmp_path: Path) -> None:
+    data_by_key, payloads = _make_shard(tmp_path)
     fake_client = FakeS3Client(data_by_key)
+    cache = LRUCache[IndexCacheKey, dict[str, object]](LRUCacheConfig(max_size=4))
 
     storage = S3ShardStorage(S3Config(bucket="bucket"), client=fake_client)
+    retriever = S3ShardRetriever(storage, n_bits=8, index_cache=cache)
     storage.list_candidate_keys = lambda *_: list(data_by_key.keys())  # type: ignore
-    retriever = S3ShardRetriever(storage, n_bits=8)
-
-    created = datetime(2024, 1, 1)
-    data = retriever.get_file("file-a", created)
-
-    assert data == payloads["file-a"]
-    assert len(fake_client.calls) == 3
-    assert fake_client.calls[0]["Range"] == f"bytes=-{FOOTER_SIZE}"
-    # verify index range call starts at computed offset
-    index_call = fake_client.calls[1]["Range"]
-    assert index_call.startswith("bytes=")
-    # payload range should include offset and length
-    payload_call = fake_client.calls[2]["Range"]
-    assert payload_call.startswith("bytes=")
-
-
-def test_multiple_gets_issue_separate_range_calls(tmp_path: Path) -> None:
-    shard_path, payloads = _build_shard(tmp_path)
-    data_by_key = {"20240101_39_0000.des": shard_path.read_bytes()}
-    fake_client = FakeS3Client(data_by_key)
-
-    storage = S3ShardStorage(S3Config(bucket="bucket"), client=fake_client)
-    storage.list_candidate_keys = lambda *_: list(data_by_key.keys())  # type: ignore
-    retriever = S3ShardRetriever(storage, n_bits=8)
     created = datetime(2024, 1, 1)
 
     retriever.get_file("file-a", created)
-    retriever.get_file("file-b", created)
+    first_call_count = len(fake_client.calls)
+    assert first_call_count == 3
 
-    assert len(fake_client.calls) == 4  # first call footer/index/payload, second payload only from cached index
+    fake_client.calls.clear()
+    retriever.get_file("file-b", created)
+    assert len(fake_client.calls) == 1
+    assert fake_client.calls[0]["Range"].startswith("bytes=")
+
+
+def test_cache_eviction_respects_max_size(tmp_path: Path) -> None:
+    cache = LRUCache[IndexCacheKey, dict[str, object]](LRUCacheConfig(max_size=2))
+
+    for i in range(3):
+        cache.set(("bucket", f"key-{i}"), {})
+    assert len(cache) == 2

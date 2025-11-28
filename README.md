@@ -16,6 +16,10 @@ The `des_core.routing.locate_shard` function deterministically maps `(uid, creat
 
 DES shards support optional compression (zstd or lz4) configured via `CompressionConfig` profiles (`aggressive`, `balanced`, `speed`). Common already-compressed extensions (jpg/png/gz/zip, etc.) are skipped automatically. `ShardWriter` records codec and compressed/uncompressed sizes per entry so `ShardReader` can transparently decompress on read.
 
+## Retrieval
+
+S3 retrievers use a three-step range-GET pattern (footer → index → payload) and keep an in-memory index cache to reduce repeated S3 calls. The HTTP retriever exposes Prometheus metrics at `/metrics` covering retrieval counts, latency, and S3 range call counters.
+
 ---
 
 # 🔥 Najważniejsze cechy
