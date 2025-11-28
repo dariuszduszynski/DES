@@ -34,6 +34,10 @@ from .retriever import (
     LocalShardRetriever,
     make_local_config,
 )
+from .http_retriever import (
+    HttpRetrieverSettings,
+    create_app,
+)
 
 __all__ = [
     "ShardLocation",
@@ -51,6 +55,8 @@ __all__ = [
     "LocalRetrieverConfig",
     "LocalShardRetriever",
     "make_local_config",
+    "HttpRetrieverSettings",
+    "create_app",
     "normalize_uid",
     "format_date_dir",
     "compute_shard_index_from_uid",
