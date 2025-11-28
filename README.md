@@ -184,4 +184,4 @@ mypy src
 - Multi-S3 routing is read-side only; write replication is manual.
 - Packer consumes manifest files; upstream DB integration is not included yet.
 
-Further reading: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+Further reading: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), [ROADMAP.md](ROADMAP.md)

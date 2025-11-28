@@ -1,0 +1,54 @@
+# 🗺️ Roadmap
+
+## ✅ Zrealizowane (v0.1.0 - v0.2.0)
+- [x] Core routing helpers (deterministyczny shard lookup)
+- [x] Planner (grupowanie plików do shardów z size limiting)
+- [x] Shard I/O (format DES v2: header, data, index, footer)
+- [x] Compression implementation – zstd/lz4 per-file w ShardWriter/Reader
+- [x] Local filesystem packer
+- [x] CLI tool (`des-pack`)
+- [x] S3-backed Retriever – odczyt plików z S3 shardów
+- [x] S3 Packer – upload shardów do S3 po lokalnym pakowaniu
+- [x] Multi-zone S3 Retriever – routing do wielu stref S3 na podstawie shard index
+- [x] S3 range-GET optimization dla partial index/payload fetch
+- [x] Local cache dla indeksów shardów (LRU cache)
+- [x] HTTP Retriever – FastAPI service z trzema backendami (local/s3/multi_s3)
+- [x] Prometheus metrics – DES_RETRIEVALS_TOTAL, DES_RETRIEVAL_SECONDS, DES_S3_RANGE_CALLS_TOTAL
+- [x] Docker support – Dockerfile + docker-compose.yml
+- [x] Kubernetes manifests – Deployment + Service (basic)
+- [x] Comprehensive tests (80%+ coverage)
+- [x] Dokumentacja kompresji per-file
+
+## 📋 Planowane (v0.3.0+)
+- **Advanced Kubernetes features**
+  - [ ] Helm charts z konfigurowalnymi values
+  - [ ] HorizontalPodAutoscaler dla auto-scaling
+  - [ ] PersistentVolumeClaim templates dla local backend
+  - [ ] ConfigMaps/Secrets management dla multi-zone configs
+  - [ ] Ingress configuration
+- **Operational readiness**
+  - [ ] Health checks dla S3 connectivity (obecnie tylko `/health` endpoint)
+  - [ ] Auto-retry logic w S3 retrieverze (exponential backoff)
+  - [ ] Circuit breaker dla multi-zone failover
+  - [ ] Graceful shutdown handling
+- **Distributed packer coordination**
+  - [ ] Multi-instance packer z distributed locking (Redis/etcd)
+  - [ ] Work queue dla fair distribution
+  - [ ] Progress tracking i resume capability
+- **Enhanced metrics**
+  - [ ] Compression ratio histograms (`des_compression_ratio`)
+  - [ ] Storage savings counter (`des_bytes_saved_total`)
+  - [ ] Compression/decompression latency (`des_compress_seconds`, `des_decompress_seconds`)
+  - [ ] Cache hit ratio metrics (`des_cache_hit_total`, `des_cache_miss_total`)
+  - [ ] Shard size metrics (`des_shard_files_total`, `des_shard_size_bytes`)
+- **Advanced features**
+  - [ ] GraphQL API obok REST (opcjonalnie)
+  - [ ] Adaptive compression (auto-tuning poziomu na podstawie throughput)
+  - [ ] Index compression (zstd dla samego indeksu w shardzie)
+  - [ ] Shard defragmentation tool (repacking shardów z deleted entries)
+  - [ ] Batch retrieval API (pobieranie wielu plików w jednym requescie)
+- **Developer experience**
+  - [ ] Contributing guidelines (CONTRIBUTING.md)
+  - [ ] Performance benchmarking suite
+  - [ ] Example integrations (Python SDK, Node.js client)
+  - [ ] Migration tools (import z innych systemów)
