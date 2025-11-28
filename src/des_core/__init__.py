@@ -44,6 +44,11 @@ from .s3_retriever import (
     S3ShardStorage,
     normalize_prefix,
 )
+from .s3_packer import (
+    S3PackerResult,
+    UploadedShard,
+    pack_files_to_s3,
+)
 
 __all__ = [
     "ShardLocation",
@@ -65,6 +70,9 @@ __all__ = [
     "S3ShardRetriever",
     "S3ShardStorage",
     "normalize_prefix",
+    "S3PackerResult",
+    "UploadedShard",
+    "pack_files_to_s3",
     "HttpRetrieverSettings",
     "create_app",
     "normalize_uid",
