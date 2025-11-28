@@ -1,4 +1,4 @@
-"""Core routing utilities for Datavision Easy Store (DES)."""
+"""Core utilities for Datavision Easy Store (DES)."""
 
 from .routing import (
     ShardLocation,
@@ -18,6 +18,12 @@ from .packer_planner import (
     build_pack_plan,
     estimate_shard_counts,
 )
+from .shard_io import (
+    ShardFileEntry,
+    ShardIndex,
+    ShardReader,
+    ShardWriter,
+)
 
 __all__ = [
     "ShardLocation",
@@ -26,6 +32,10 @@ __all__ = [
     "PlannedShard",
     "PackPlan",
     "PlannerConfig",
+    "ShardFileEntry",
+    "ShardIndex",
+    "ShardReader",
+    "ShardWriter",
     "normalize_uid",
     "format_date_dir",
     "compute_shard_index_from_uid",
