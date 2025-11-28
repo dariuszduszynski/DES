@@ -21,5 +21,8 @@ dev = [
   "ruff>=0.6",
 ]
 
+[project.scripts]
+des-pack = "des_core.cli_packer:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

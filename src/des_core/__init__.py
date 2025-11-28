@@ -24,6 +24,11 @@ from .shard_io import (
     ShardReader,
     ShardWriter,
 )
+from .packer import (
+    PackerResult,
+    ShardWriteResult,
+    pack_files_to_directory,
+)
 
 __all__ = [
     "ShardLocation",
@@ -36,6 +41,8 @@ __all__ = [
     "ShardIndex",
     "ShardReader",
     "ShardWriter",
+    "PackerResult",
+    "ShardWriteResult",
     "normalize_uid",
     "format_date_dir",
     "compute_shard_index_from_uid",
@@ -44,4 +51,5 @@ __all__ = [
     "locate_shard",
     "build_pack_plan",
     "estimate_shard_counts",
+    "pack_files_to_directory",
 ]
