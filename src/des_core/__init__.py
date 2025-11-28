@@ -29,6 +29,11 @@ from .packer import (
     ShardWriteResult,
     pack_files_to_directory,
 )
+from .retriever import (
+    LocalRetrieverConfig,
+    LocalShardRetriever,
+    make_local_config,
+)
 
 __all__ = [
     "ShardLocation",
@@ -43,6 +48,9 @@ __all__ = [
     "ShardWriter",
     "PackerResult",
     "ShardWriteResult",
+    "LocalRetrieverConfig",
+    "LocalShardRetriever",
+    "make_local_config",
     "normalize_uid",
     "format_date_dir",
     "compute_shard_index_from_uid",
