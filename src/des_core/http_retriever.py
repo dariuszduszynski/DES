@@ -10,19 +10,31 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import AnyUrl, BaseModel
 
-from .retriever import LocalShardRetriever, make_local_config
+from .retriever import LocalRetrieverConfig, LocalShardRetriever, make_local_config
+from .s3_retriever import S3Config, S3ShardRetriever, S3ShardStorage
 
 
 class HttpRetrieverSettings(BaseModel):
-    """Configuration for the HTTP retriever service."""
+    """Settings for the DES HTTP retriever service."""
 
-    base_dir: Path
+    backend: Literal["local", "s3"] = "local"
+
+    # local backend
+    base_dir: Path | None = None
+
+    # shared routing
     n_bits: int = 8
+
+    # s3 backend
+    s3_bucket: str | None = None
+    s3_region_name: str | None = None
+    s3_endpoint_url: AnyUrl | None = None
+    s3_prefix: str = ""
 
 
 def _parse_created_at(value: str) -> datetime:
@@ -40,7 +52,7 @@ def create_app(settings: HttpRetrieverSettings) -> FastAPI:
 
     app = FastAPI(title="DES HTTP Retriever", version="0.1.0")
 
-    retriever = LocalShardRetriever(make_local_config(settings.base_dir, settings.n_bits))
+    retriever = build_retriever_from_settings(settings)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -62,10 +74,51 @@ def create_app(settings: HttpRetrieverSettings) -> FastAPI:
     return app
 
 
-_default_base_dir = Path(os.environ.get("DES_BASE_DIR", "./data/des"))
-_default_base_dir.mkdir(parents=True, exist_ok=True)
-settings = HttpRetrieverSettings(
-    base_dir=_default_base_dir,
-    n_bits=int(os.environ.get("DES_N_BITS", "8")),
-)
+def build_retriever_from_settings(settings: HttpRetrieverSettings) -> LocalShardRetriever | S3ShardRetriever:
+    """Instantiate the proper retriever based on settings."""
+
+    if settings.backend == "local":
+        if settings.base_dir is None:
+            raise ValueError("base_dir must be provided for local backend")
+        return LocalShardRetriever(LocalRetrieverConfig(base_dir=settings.base_dir, n_bits=settings.n_bits))
+
+    if settings.backend == "s3":
+        if not settings.s3_bucket:
+            raise ValueError("s3_bucket must be provided for s3 backend")
+        s3_config = S3Config(
+            bucket=settings.s3_bucket,
+            prefix=settings.s3_prefix,
+            region_name=settings.s3_region_name,
+            endpoint_url=str(settings.s3_endpoint_url) if settings.s3_endpoint_url else None,
+        )
+        storage = S3ShardStorage(s3_config)
+        return S3ShardRetriever(storage, n_bits=settings.n_bits)
+
+    raise ValueError(f"Unsupported backend: {settings.backend}")
+
+
+def _load_settings_from_env() -> HttpRetrieverSettings:
+    backend = os.environ.get("DES_BACKEND", "local").lower()
+    n_bits = int(os.environ.get("DES_N_BITS", "8"))
+
+    if backend == "s3" or os.environ.get("DES_S3_BUCKET"):
+        return HttpRetrieverSettings(
+            backend="s3",
+            n_bits=n_bits,
+            s3_bucket=os.environ.get("DES_S3_BUCKET"),
+            s3_region_name=os.environ.get("DES_S3_REGION"),
+            s3_endpoint_url=os.environ.get("DES_S3_ENDPOINT_URL"),
+            s3_prefix=os.environ.get("DES_S3_PREFIX", ""),
+        )
+
+    base_dir = Path(os.environ.get("DES_BASE_DIR", "./data/des"))
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return HttpRetrieverSettings(
+        backend="local",
+        base_dir=base_dir,
+        n_bits=n_bits,
+    )
+
+
+settings = _load_settings_from_env()
 app = create_app(settings)
