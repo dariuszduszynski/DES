@@ -38,6 +38,12 @@ from .http_retriever import (
     HttpRetrieverSettings,
     create_app,
 )
+from .s3_retriever import (
+    S3Config,
+    S3ShardRetriever,
+    S3ShardStorage,
+    normalize_prefix,
+)
 
 __all__ = [
     "ShardLocation",
@@ -55,6 +61,10 @@ __all__ = [
     "LocalRetrieverConfig",
     "LocalShardRetriever",
     "make_local_config",
+    "S3Config",
+    "S3ShardRetriever",
+    "S3ShardStorage",
+    "normalize_prefix",
     "HttpRetrieverSettings",
     "create_app",
     "normalize_uid",

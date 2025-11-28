@@ -149,20 +149,33 @@ class ShardWriter:
 class ShardReader:
     """Reader for DES v2 shard files."""
 
-    def __init__(self, fp: BinaryIO):
+    def __init__(self, fp: BinaryIO, owns_stream: bool = False):
         self._fp = fp
+        self._owns_stream = owns_stream
         self.index = self._load_index()
 
     @classmethod
     def from_path(cls, path: Path | str) -> "ShardReader":
         fp = open(path, "rb")
-        return cls(fp)
+        return cls._from_stream(fp, owns_stream=True)
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> "ShardReader":
+        """Create a reader from in-memory shard bytes."""
+
+        stream = io.BytesIO(data)
+        return cls._from_stream(stream, owns_stream=True)
+
+    @classmethod
+    def _from_stream(cls, stream: BinaryIO, owns_stream: bool) -> "ShardReader":
+        return cls(stream, owns_stream=owns_stream)
 
     def __enter__(self) -> "ShardReader":
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        self._fp.close()
+        if self._owns_stream:
+            self._fp.close()
 
     def list_uids(self) -> List[str]:
         return self.index.keys()
