@@ -47,12 +47,17 @@ def main() -> None:
     files = _load_files_from_json(Path(args.input_json))
     config = PlannerConfig(max_shard_size_bytes=args.max_shard_size, n_bits=args.n_bits)
 
-    result: PackerResult = pack_files_to_directory(files, args.output_dir, config)
+    try:
+        result: PackerResult = pack_files_to_directory(files, args.output_dir, config)
+    except Exception as exc:
+        print(f"Packing failed: {exc}")
+        raise SystemExit(1) from exc
 
     total_files = sum(s.file_count for s in result.shards)
-    print(f"Wrote {len(result.shards)} shard(s) containing {total_files} files.")
+    total_size = sum(s.total_size_bytes for s in result.shards)
+    print(f"Wrote {len(result.shards)} shard(s) containing {total_files} files, total logical size {total_size} bytes.")
     for shard in result.shards:
-        print(f"- {shard.path} ({shard.file_count} files, {shard.total_size_bytes} bytes)")
+        print(f"SHARD: {shard.path} files={shard.file_count} size={shard.total_size_bytes}")
 
 
 if __name__ == "__main__":  # pragma: no cover

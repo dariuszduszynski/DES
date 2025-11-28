@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: des-packer
+  labels:
+    app: des-packer
+spec:
+  template:
+    metadata:
+      labels:
+        app: des-packer
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: des-packer
+          image: des-packer:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - "des-pack"
+            - "--input-json"
+            - "/data/manifests/to-pack.json"
+            - "--output-dir"
+            - "/data/output"
+            - "--max-shard-size"
+            - "1073741824"
+            - "--n-bits"
+            - "8"
+          volumeMounts:
+            - name: des-input
+              mountPath: /data/input
+            - name: des-manifests
+              mountPath: /data/manifests
+            - name: des-output
+              mountPath: /data/output
+      volumes:
+        - name: des-input
+          persistentVolumeClaim:
+            claimName: des-input-pvc
+        - name: des-manifests
+          persistentVolumeClaim:
+            claimName: des-manifests-pvc
+        - name: des-output
+          persistentVolumeClaim:
+            claimName: des-output-pvc

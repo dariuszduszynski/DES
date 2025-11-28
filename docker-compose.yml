@@ -24,3 +24,22 @@ services:
       - ./example_data/des:/data/des:ro
       # - ./config/zones.yaml:/config/zones.yaml:ro
     restart: unless-stopped
+
+  des-packer:
+    build:
+      context: .
+      dockerfile: Dockerfile.packer
+    image: des-packer:local
+    container_name: des-packer
+    command: [
+      "des-pack",
+      "--input-json", "/data/manifests/to-pack.json",
+      "--output-dir", "/data/output",
+      "--max-shard-size", "1073741824",
+      "--n-bits", "8"
+    ]
+    volumes:
+      - ./example_data/input:/data/input:ro
+      - ./example_data/manifests:/data/manifests:ro
+      - ./example_data/output:/data/output
+    restart: "no"
