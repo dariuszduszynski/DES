@@ -49,6 +49,19 @@ from .s3_packer import (
     UploadedShard,
     pack_files_to_s3,
 )
+from .compression import (
+    CompressionCodec,
+    CompressionConfig,
+    CompressionProfile,
+    aggressive_zstd_config,
+    balanced_zstd_config,
+    speed_lz4_config,
+)
+from .multi_s3_retriever import (
+    MultiS3ShardRetriever,
+    S3ZoneConfig,
+    S3ZoneRange,
+)
 
 __all__ = [
     "ShardLocation",
@@ -73,6 +86,15 @@ __all__ = [
     "S3PackerResult",
     "UploadedShard",
     "pack_files_to_s3",
+    "CompressionCodec",
+    "CompressionConfig",
+    "CompressionProfile",
+    "aggressive_zstd_config",
+    "balanced_zstd_config",
+    "speed_lz4_config",
+    "MultiS3ShardRetriever",
+    "S3ZoneConfig",
+    "S3ZoneRange",
     "HttpRetrieverSettings",
     "create_app",
     "normalize_uid",

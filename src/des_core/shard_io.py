@@ -33,6 +33,8 @@ from pathlib import Path
 import struct
 from typing import BinaryIO, Dict, Iterable, List, Optional
 
+from .compression import CompressionCodec, CompressionConfig
+
 
 HEADER_MAGIC = b"DES2"
 FOOTER_MAGIC = b"DESI"
@@ -40,6 +42,25 @@ VERSION = 0x01
 HEADER_RESERVED = b"\x00\x00\x00"
 HEADER_SIZE = 4 + 1 + 3
 FOOTER_SIZE = 4 + 8
+_CODEC_BYTE_MAP = {
+    CompressionCodec.NONE: 0,
+    CompressionCodec.ZSTD: 1,
+    CompressionCodec.LZ4: 2,
+}
+
+
+def _codec_to_byte(codec: CompressionCodec) -> int:
+    try:
+        return _CODEC_BYTE_MAP[codec]
+    except KeyError:
+        raise ValueError(f"Unsupported codec {codec}")
+
+
+def _byte_to_codec(value: int) -> CompressionCodec:
+    for codec, b in _CODEC_BYTE_MAP.items():
+        if b == value:
+            return codec
+    raise ValueError(f"Unknown codec byte {value}")
 
 
 @dataclass(frozen=True)
@@ -49,6 +70,9 @@ class ShardFileEntry:
     uid: str
     offset: int
     length: int
+    codec: CompressionCodec
+    compressed_size: int
+    uncompressed_size: int
 
 
 @dataclass
@@ -69,11 +93,17 @@ class ShardIndex:
     def keys(self) -> List[str]:
         return list(self.entries.keys())
 
+    def values(self) -> List[ShardFileEntry]:
+        return list(self.entries.values())
+
+    def items(self):
+        return self.entries.items()
+
 
 class ShardWriter:
     """Context manager for writing DES v2 shard files locally."""
 
-    def __init__(self, target: Path | str | BinaryIO):
+    def __init__(self, target: Path | str | BinaryIO, *, compression: CompressionConfig | None = None):
         self._owns_handle = False
         if isinstance(target, (str, Path)):
             self._fp = open(target, "wb")
@@ -83,6 +113,7 @@ class ShardWriter:
         self._started = False
         self._closed = False
         self._entries: Dict[str, ShardFileEntry] = {}
+        self._compression = compression or CompressionConfig(codec=CompressionCodec.NONE)
 
     def __enter__(self) -> "ShardWriter":
         self._write_header()
@@ -104,10 +135,38 @@ class ShardWriter:
         if not isinstance(data, (bytes, bytearray)):
             raise TypeError("data must be bytes")
 
+        codec = CompressionCodec.NONE
+        compressed = bytes(data)
+
+        if self._compression.should_compress(uid):
+            codec = self._compression.codec
+            if codec is CompressionCodec.ZSTD:
+                import zstandard as zstd
+
+                compressor = zstd.ZstdCompressor(level=self._compression.level or 3)
+                compressed = compressor.compress(compressed)
+            elif codec is CompressionCodec.LZ4:
+                import lz4.frame as lz4f
+
+                if self._compression.level is not None:
+                    compressed = lz4f.compress(compressed, compression_level=self._compression.level)
+                else:
+                    compressed = lz4f.compress(compressed)
+            else:
+                codec = CompressionCodec.NONE
+                compressed = bytes(data)
+
         fp = self._fp
         offset = fp.tell()
-        fp.write(data)
-        self._entries[uid] = ShardFileEntry(uid=uid, offset=offset, length=len(data))
+        fp.write(compressed)
+        self._entries[uid] = ShardFileEntry(
+            uid=uid,
+            offset=offset,
+            length=len(compressed),
+            codec=codec,
+            compressed_size=len(compressed),
+            uncompressed_size=len(data),
+        )
 
     def _write_header(self) -> None:
         if self._started:
@@ -131,6 +190,8 @@ class ShardWriter:
             index_buffer.write(struct.pack("<H", len(name_bytes)))
             index_buffer.write(name_bytes)
             index_buffer.write(struct.pack("<QQ", entry.offset, entry.length))
+            index_buffer.write(struct.pack("<B", _codec_to_byte(entry.codec)))
+            index_buffer.write(struct.pack("<QQ", entry.compressed_size, entry.uncompressed_size))
 
         index_bytes = index_buffer.getvalue()
         index_size = len(index_bytes)
@@ -192,7 +253,25 @@ class ShardReader:
         data = self._fp.read(entry.length)
         if len(data) != entry.length:
             raise ValueError(f"Unexpected end of file while reading UID {uid!r}")
-        return data
+
+        if entry.codec == CompressionCodec.NONE:
+            return data
+
+        if entry.codec == CompressionCodec.ZSTD:
+            import zstandard as zstd
+
+            decompressor = zstd.ZstdDecompressor()
+            result = decompressor.decompress(data, max_output_size=entry.uncompressed_size)
+        elif entry.codec == CompressionCodec.LZ4:
+            import lz4.frame as lz4f
+
+            result = lz4f.decompress(data)
+        else:
+            raise ValueError(f"Unsupported compression codec {entry.codec}")
+
+        if entry.uncompressed_size is not None and len(result) != entry.uncompressed_size:
+            raise ValueError("Decompressed size mismatch")
+        return result
 
     def _load_index(self) -> ShardIndex:
         fp = self._fp
@@ -253,14 +332,25 @@ class ShardReader:
             offset += name_len
             uid = name_bytes.decode("utf-8")
 
-            if offset + 16 > len(data):
+            if offset + 16 + 1 + 16 > len(data):
                 raise ValueError("Truncated index while reading entry metadata.")
             file_offset, length = struct.unpack_from("<QQ", data, offset)
+            offset += 16
+            codec_byte = struct.unpack_from("<B", data, offset)[0]
+            offset += 1
+            compressed_size, uncompressed_size = struct.unpack_from("<QQ", data, offset)
             offset += 16
 
             if file_offset + length > data_section_end:
                 raise ValueError("Indexed file extends beyond data section.")
 
-            entries[uid] = ShardFileEntry(uid=uid, offset=file_offset, length=length)
+            entries[uid] = ShardFileEntry(
+                uid=uid,
+                offset=file_offset,
+                length=length,
+                codec=_byte_to_codec(codec_byte),
+                compressed_size=compressed_size,
+                uncompressed_size=uncompressed_size,
+            )
 
         return entries

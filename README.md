@@ -12,6 +12,10 @@ Ten projekt jest odświeżoną i uproszczoną wersją poprzedniego DES – pozba
 
 The `des_core.routing.locate_shard` function deterministically maps `(uid, created_at)` to a `ShardLocation` without any database lookups. `ShardLocation` bundles the normalized UID, `date_dir` (`YYYYMMDD`), computed `shard_index`, hex form `shard_hex`, and the final object key `YYYYMMDD/HH.des`. The pure functions in `des_core.routing` define the routing contract used by packers, retrievers, and routers.
 
+## Compression
+
+DES shards support optional compression (zstd or lz4) configured via `CompressionConfig` profiles (`aggressive`, `balanced`, `speed`). Common already-compressed extensions (jpg/png/gz/zip, etc.) are skipped automatically. `ShardWriter` records codec and compressed/uncompressed sizes per entry so `ShardReader` can transparently decompress on read.
+
 ---
 
 # 🔥 Najważniejsze cechy
