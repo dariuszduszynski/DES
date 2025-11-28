@@ -26,9 +26,27 @@ class FakeS3Client:
             return {}
         return {"Contents": contents}
 
-    def get_object(self, Bucket: str, Key: str) -> dict[str, Any]:
+    def get_object(self, Bucket: str, Key: str, Range: str | None = None) -> dict[str, Any]:
         data = self.objects[(Bucket, Key)]
-        return {"Body": BytesIO(data)}
+        if Range is None:
+            return {"Body": BytesIO(data), "ContentLength": len(data)}
+
+        if Range.startswith("bytes=-"):
+            length = int(Range[len("bytes=-") :])
+            slice_data = data[-length:]
+            start = len(data) - length
+            end = len(data) - 1
+            return {"Body": BytesIO(slice_data), "ContentRange": f"bytes {start}-{end}/{len(data)}"}
+
+        if Range.startswith("bytes="):
+            _, spec = Range.split("=", 1)
+            start_str, end_str = spec.split("-")
+            start = int(start_str)
+            end = int(end_str)
+            slice_data = data[start : end + 1]
+            return {"Body": BytesIO(slice_data), "ContentRange": f"bytes {start}-{end}/{len(data)}"}
+
+        raise ValueError(f"Unsupported Range: {Range}")
 
 
 def _pack_to_fake_s3(

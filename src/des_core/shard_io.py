@@ -23,6 +23,8 @@ Index section:
 Footer:
     4 bytes  footer magic = b"DESI"
     8 bytes  index_size (uint64) - size in bytes of the entire index section.
+Footer is fixed-size and sits at the end of the file; index starts at
+(file_size - FOOTER_SIZE - index_size).
 """
 
 from __future__ import annotations
@@ -61,6 +63,25 @@ def _byte_to_codec(value: int) -> CompressionCodec:
         if b == value:
             return codec
     raise ValueError(f"Unknown codec byte {value}")
+
+
+@dataclass(frozen=True)
+class FooterInfo:
+    index_size: int
+    index_offset: int
+
+
+def parse_footer(footer_bytes: bytes, total_size: int) -> FooterInfo:
+    if len(footer_bytes) != FOOTER_SIZE:
+        raise ValueError("Invalid footer size")
+    magic = footer_bytes[:4]
+    if magic != FOOTER_MAGIC:
+        raise ValueError("Invalid shard footer magic.")
+    (index_size,) = struct.unpack("<Q", footer_bytes[4:])
+    index_offset = total_size - FOOTER_SIZE - index_size
+    if index_offset < HEADER_SIZE:
+        raise ValueError("Computed index offset is invalid.")
+    return FooterInfo(index_size=index_size, index_offset=index_offset)
 
 
 @dataclass(frozen=True)
@@ -254,24 +275,7 @@ class ShardReader:
         if len(data) != entry.length:
             raise ValueError(f"Unexpected end of file while reading UID {uid!r}")
 
-        if entry.codec == CompressionCodec.NONE:
-            return data
-
-        if entry.codec == CompressionCodec.ZSTD:
-            import zstandard as zstd
-
-            decompressor = zstd.ZstdDecompressor()
-            result = decompressor.decompress(data, max_output_size=entry.uncompressed_size)
-        elif entry.codec == CompressionCodec.LZ4:
-            import lz4.frame as lz4f
-
-            result = lz4f.decompress(data)
-        else:
-            raise ValueError(f"Unsupported compression codec {entry.codec}")
-
-        if entry.uncompressed_size is not None and len(result) != entry.uncompressed_size:
-            raise ValueError("Decompressed size mismatch")
-        return result
+        return decompress_entry(entry, data)
 
     def _load_index(self) -> ShardIndex:
         fp = self._fp
@@ -292,65 +296,78 @@ class ShardReader:
             raise ValueError("Invalid header size.")
 
         fp.seek(file_size - FOOTER_SIZE)
-        footer_magic = fp.read(4)
-        if footer_magic != FOOTER_MAGIC:
-            raise ValueError("Invalid shard footer magic.")
-        index_size_bytes = fp.read(8)
-        if len(index_size_bytes) != 8:
-            raise ValueError("Truncated footer.")
-        (index_size,) = struct.unpack("<Q", index_size_bytes)
+        footer_bytes = fp.read(FOOTER_SIZE)
+        footer = parse_footer(footer_bytes, total_size=file_size)
 
-        index_start = file_size - FOOTER_SIZE - index_size
-        if index_start < HEADER_SIZE or index_start > file_size - FOOTER_SIZE:
-            raise ValueError("Invalid index size or position.")
-
-        fp.seek(index_start)
-        index_data = fp.read(index_size)
-        if len(index_data) != index_size:
+        fp.seek(footer.index_offset)
+        index_data = fp.read(footer.index_size)
+        if len(index_data) != footer.index_size:
             raise ValueError("Failed to read full index section.")
 
-        entries = self._parse_index(index_data, data_section_end=index_start)
+        entries = parse_index(index_data, data_section_end=footer.index_offset)
         return ShardIndex(entries=entries)
 
-    def _parse_index(self, data: bytes, data_section_end: int) -> Dict[str, ShardFileEntry]:
-        if len(data) < 4:
-            raise ValueError("Index too small to contain entry count.")
 
-        entry_count = struct.unpack_from("<I", data, 0)[0]
-        offset = 4
-        entries: Dict[str, ShardFileEntry] = {}
+def parse_index(data: bytes, data_section_end: int) -> Dict[str, ShardFileEntry]:
+    if len(data) < 4:
+        raise ValueError("Index too small to contain entry count.")
 
-        for _ in range(entry_count):
-            if offset + 2 > len(data):
-                raise ValueError("Truncated index while reading name length.")
-            name_len = struct.unpack_from("<H", data, offset)[0]
-            offset += 2
+    entry_count = struct.unpack_from("<I", data, 0)[0]
+    offset = 4
+    entries: Dict[str, ShardFileEntry] = {}
 
-            if offset + name_len > len(data):
-                raise ValueError("Truncated index while reading UID.")
-            name_bytes = data[offset : offset + name_len]
-            offset += name_len
-            uid = name_bytes.decode("utf-8")
+    for _ in range(entry_count):
+        if offset + 2 > len(data):
+            raise ValueError("Truncated index while reading name length.")
+        name_len = struct.unpack_from("<H", data, offset)[0]
+        offset += 2
 
-            if offset + 16 + 1 + 16 > len(data):
-                raise ValueError("Truncated index while reading entry metadata.")
-            file_offset, length = struct.unpack_from("<QQ", data, offset)
-            offset += 16
-            codec_byte = struct.unpack_from("<B", data, offset)[0]
-            offset += 1
-            compressed_size, uncompressed_size = struct.unpack_from("<QQ", data, offset)
-            offset += 16
+        if offset + name_len > len(data):
+            raise ValueError("Truncated index while reading UID.")
+        name_bytes = data[offset : offset + name_len]
+        offset += name_len
+        uid = name_bytes.decode("utf-8")
 
-            if file_offset + length > data_section_end:
-                raise ValueError("Indexed file extends beyond data section.")
+        if offset + 16 + 1 + 16 > len(data):
+            raise ValueError("Truncated index while reading entry metadata.")
+        file_offset, length = struct.unpack_from("<QQ", data, offset)
+        offset += 16
+        codec_byte = struct.unpack_from("<B", data, offset)[0]
+        offset += 1
+        compressed_size, uncompressed_size = struct.unpack_from("<QQ", data, offset)
+        offset += 16
 
-            entries[uid] = ShardFileEntry(
-                uid=uid,
-                offset=file_offset,
-                length=length,
-                codec=_byte_to_codec(codec_byte),
-                compressed_size=compressed_size,
-                uncompressed_size=uncompressed_size,
-            )
+        if file_offset + length > data_section_end:
+            raise ValueError("Indexed file extends beyond data section.")
 
-        return entries
+        entries[uid] = ShardFileEntry(
+            uid=uid,
+            offset=file_offset,
+            length=length,
+            codec=_byte_to_codec(codec_byte),
+            compressed_size=compressed_size,
+            uncompressed_size=uncompressed_size,
+        )
+
+    return entries
+
+
+def decompress_entry(entry: ShardFileEntry, data: bytes) -> bytes:
+    if entry.codec == CompressionCodec.NONE:
+        return data
+
+    if entry.codec == CompressionCodec.ZSTD:
+        import zstandard as zstd
+
+        decompressor = zstd.ZstdDecompressor()
+        result = decompressor.decompress(data, max_output_size=entry.uncompressed_size)
+    elif entry.codec == CompressionCodec.LZ4:
+        import lz4.frame as lz4f
+
+        result = lz4f.decompress(data)
+    else:
+        raise ValueError(f"Unsupported compression codec {entry.codec}")
+
+    if entry.uncompressed_size is not None and len(result) != entry.uncompressed_size:
+        raise ValueError("Decompressed size mismatch")
+    return result

@@ -12,7 +12,12 @@ from botocore.client import BaseClient
 from botocore.response import StreamingBody
 
 from .routing import locate_shard, normalize_uid
-from .shard_io import ShardReader
+from .shard_io import (
+    FOOTER_SIZE,
+    decompress_entry,
+    parse_footer,
+    parse_index,
+)
 
 
 @dataclass(frozen=True)
@@ -61,6 +66,34 @@ class S3ShardStorage:
         body: StreamingBody = response["Body"]
         return body.read()
 
+    def get_tail(self, key: str, length: int) -> tuple[bytes, int]:
+        """Read the last `length` bytes of an object and return (data, total_size)."""
+
+        response = self._client.get_object(Bucket=self._config.bucket, Key=key, Range=f"bytes=-{length}")
+        total_size = _extract_total_size(response)
+        body: StreamingBody = response["Body"]
+        return body.read(), total_size
+
+    def get_range(self, key: str, start: int, length: int) -> bytes:
+        """Read a byte range from an object."""
+
+        end = start + length - 1
+        response = self._client.get_object(Bucket=self._config.bucket, Key=key, Range=f"bytes={start}-{end}")
+        body: StreamingBody = response["Body"]
+        return body.read()
+
+
+def _extract_total_size(response: dict[str, Any]) -> int:
+    content_range = response.get("ContentRange") or response.get("Content-Range") or response.get("Content-Range")
+    if content_range:
+        # format: bytes start-end/total
+        total_str = content_range.split("/")[-1]
+        return int(total_str)
+    # fallback to ContentLength when full object is returned
+    if "ContentLength" in response:
+        return int(response["ContentLength"])
+    raise ValueError("Unable to determine total object size from response.")
+
 
 class S3ShardRetriever:
     """Retriever that fetches shards from S3 and reads them in-memory."""
@@ -74,10 +107,12 @@ class S3ShardRetriever:
         date_dir, shard_hex = self._resolve_key_components(normalized_uid, created_at)
 
         for key in self._s3.list_candidate_keys(date_dir, shard_hex):
-            data = self._s3.get_object_bytes(key)
-            with ShardReader.from_bytes(data) as reader:
-                if reader.has_uid(normalized_uid):
-                    return True
+            footer_bytes, total_size = self._s3.get_tail(key, FOOTER_SIZE)
+            footer = parse_footer(footer_bytes, total_size=total_size)
+            index_bytes = self._s3.get_range(key, footer.index_offset, footer.index_size)
+            entries = parse_index(index_bytes, data_section_end=footer.index_offset)
+            if normalized_uid in entries:
+                return True
         return False
 
     def get_file(self, uid: str | int, created_at: datetime) -> bytes:
@@ -85,10 +120,15 @@ class S3ShardRetriever:
         date_dir, shard_hex = self._resolve_key_components(normalized_uid, created_at)
 
         for key in self._s3.list_candidate_keys(date_dir, shard_hex):
-            data = self._s3.get_object_bytes(key)
-            with ShardReader.from_bytes(data) as reader:
-                if reader.has_uid(normalized_uid):
-                    return reader.read_file(normalized_uid)
+            footer_bytes, total_size = self._s3.get_tail(key, FOOTER_SIZE)
+            footer = parse_footer(footer_bytes, total_size=total_size)
+            index_bytes = self._s3.get_range(key, footer.index_offset, footer.index_size)
+            entries = parse_index(index_bytes, data_section_end=footer.index_offset)
+            entry = entries.get(normalized_uid)
+            if entry is None:
+                continue
+            payload = self._s3.get_range(key, entry.offset, entry.compressed_size)
+            return decompress_entry(entry, payload)
 
         raise KeyError(f"UID {normalized_uid!r} not found for date {created_at.date()}")
 
