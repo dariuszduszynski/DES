@@ -2,7 +2,6 @@ from datetime import datetime
 from pathlib import Path
 
 from des_core.compression import balanced_zstd_config
-from des_core.packer_planner import FileToPack, PlannerConfig
 from des_core.s3_retriever import S3Config, S3ShardRetriever, S3ShardStorage
 from des_core.shard_io import FOOTER_SIZE, ShardWriter
 

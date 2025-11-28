@@ -6,9 +6,9 @@ without consulting any database or external state.
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass
 from datetime import datetime
-import zlib
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,9 +4,7 @@ import pytest
 
 from des_core.packer_planner import (
     FileToPack,
-    PackPlan,
     PlannerConfig,
-    PlannedShard,
     ShardKey,
     build_pack_plan,
     estimate_shard_counts,

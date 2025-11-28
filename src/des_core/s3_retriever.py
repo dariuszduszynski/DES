@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import PurePosixPath
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Protocol, Tuple, cast
 
 import boto3
-from botocore.client import BaseClient
 from botocore.response import StreamingBody
 
+from .cache import Cache, LRUCache, LRUCacheConfig
+from .metrics import DES_RETRIEVAL_SECONDS, DES_RETRIEVALS_TOTAL, DES_S3_RANGE_CALLS_TOTAL
 from .routing import locate_shard, normalize_uid
 from .shard_io import (
     FOOTER_SIZE,
@@ -18,9 +19,6 @@ from .shard_io import (
     parse_footer,
     parse_index,
 )
-from .cache import Cache, LRUCache, LRUCacheConfig
-from .metrics import DES_RETRIEVALS_TOTAL, DES_RETRIEVAL_SECONDS, DES_S3_RANGE_CALLS_TOTAL
-import time
 
 
 @dataclass(frozen=True)
@@ -31,6 +29,20 @@ class S3Config:
     prefix: str = ""
     region_name: Optional[str] = None
     endpoint_url: Optional[str] = None
+
+
+class S3ReadClientProtocol(Protocol):
+    def list_objects_v2(self, Bucket: str, Prefix: str) -> Any: ...
+
+    def get_object(self, Bucket: str, Key: str, Range: str | None = None) -> Any: ...
+
+
+class S3WriteClientProtocol(Protocol):
+    def put_object(self, Bucket: str, Key: str, Body: bytes) -> Any: ...
+
+
+class S3ClientProtocol(S3ReadClientProtocol, S3WriteClientProtocol, Protocol):
+    pass
 
 
 def normalize_prefix(prefix: str) -> str:
@@ -44,12 +56,16 @@ def normalize_prefix(prefix: str) -> str:
 class S3ShardStorage:
     """Thin wrapper around boto3 client for DES shard access."""
 
-    def __init__(self, config: S3Config, client: BaseClient | None = None) -> None:
+    def __init__(self, config: S3Config, client: S3ReadClientProtocol | None = None) -> None:
         self._config = config
-        self._client = client or boto3.client(
-            "s3",
-            region_name=config.region_name,
-            endpoint_url=config.endpoint_url,
+        self._client: S3ReadClientProtocol = cast(
+            S3ReadClientProtocol,
+            client
+            or boto3.client(
+                "s3",
+                region_name=config.region_name,
+                endpoint_url=config.endpoint_url,
+            ),
         )
         self._prefix = normalize_prefix(config.prefix)
 
@@ -108,12 +124,16 @@ class S3ShardRetriever:
 
     def __init__(
         self,
-        s3_storage: S3ShardStorage,
+        s3_storage: S3ShardStorage | S3Config,
         n_bits: int = 8,
         *,
         index_cache: Cache[IndexCacheKey, dict[str, Any]] | None = None,
     ) -> None:
-        self._s3 = s3_storage
+        self._s3: S3ShardStorage
+        if isinstance(s3_storage, S3Config):
+            self._s3 = S3ShardStorage(s3_storage)
+        else:
+            self._s3 = s3_storage
         self._n_bits = n_bits
         self._index_cache = index_cache or LRUCache[IndexCacheKey, dict[str, Any]](LRUCacheConfig(max_size=1024))
 

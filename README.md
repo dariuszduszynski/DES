@@ -25,9 +25,10 @@ Read path (S3 backend): locate shard → range-GET footer → range-GET index �
 python -m venv .venv
 source .venv/bin/activate  # on Windows: .venv\Scripts\activate
 pip install --upgrade pip
-pip install -r requirements-dev.txt  # or: pip install .
+pip install -e ".[compression,s3,dev]"  # installs S3/compression extras and dev tooling
 pytest
 ```
+For a runtime-only install without lint/type tooling: `pip install -e ".[compression,s3]"` (or `pip install .`).
 
 ## Run HTTP retriever (local backend)
 From source:
@@ -169,14 +170,10 @@ scrape_configs:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements-dev.txt
-pytest
-```
-
-Run linters (if desired):
-```bash
+pip install -e ".[compression,s3,dev]"
+pytest --cov=des_core --cov-report=term-missing
 ruff check src tests
-mypy src
+mypy src tests
 ```
 
 ## Limitations & roadmap
@@ -185,3 +182,6 @@ mypy src
 - Packer consumes manifest files; upstream DB integration is not included yet.
 
 Further reading: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), [ROADMAP.md](ROADMAP.md)
+
+## CI / Quality Gate
+GitHub Actions runs on pushes and pull requests to `main`/`master`, executing pytest with coverage, mypy on `src` and `tests`, and `ruff check` to enforce linting.

@@ -29,14 +29,13 @@ Footer is fixed-size and sits at the end of the file; index starts at
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import io
-from pathlib import Path
 import struct
-from typing import BinaryIO, Dict, Iterable, List, Optional
+from dataclasses import dataclass
+from pathlib import Path
+from typing import BinaryIO, Dict, List, Optional
 
 from .compression import CompressionCodec, CompressionConfig
-
 
 HEADER_MAGIC = b"DES2"
 FOOTER_MAGIC = b"DESI"
@@ -126,6 +125,7 @@ class ShardWriter:
 
     def __init__(self, target: Path | str | BinaryIO, *, compression: CompressionConfig | None = None):
         self._owns_handle = False
+        self._fp: BinaryIO
         if isinstance(target, (str, Path)):
             self._fp = open(target, "wb")
             self._owns_handle = True

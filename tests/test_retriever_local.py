@@ -6,7 +6,6 @@ import pytest
 from des_core.packer import pack_files_to_directory
 from des_core.packer_planner import FileToPack, PlannerConfig
 from des_core.retriever import LocalRetrieverConfig, LocalShardRetriever
-from des_core.shard_io import ShardReader
 
 
 def _make_source_files(tmp_path: Path, payloads: dict[str, bytes], created_at: datetime) -> list[FileToPack]:

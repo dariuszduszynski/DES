@@ -10,17 +10,16 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import AnyUrl, BaseModel
 
 from .multi_s3_retriever import MultiS3ShardRetriever
-from .retriever import LocalRetrieverConfig, LocalShardRetriever, make_local_config
+from .retriever import LocalRetrieverConfig, LocalShardRetriever
 from .s3_retriever import S3Config, S3ShardRetriever, S3ShardStorage
 from .zone_config_loader import load_zones_config
-from .metrics import DES_RETRIEVALS_TOTAL, DES_RETRIEVAL_SECONDS, DES_S3_RANGE_CALLS_TOTAL
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 
 class HttpRetrieverSettings(BaseModel):
@@ -37,7 +36,7 @@ class HttpRetrieverSettings(BaseModel):
     # s3 backend
     s3_bucket: str | None = None
     s3_region_name: str | None = None
-    s3_endpoint_url: AnyUrl | None = None
+    s3_endpoint_url: AnyUrl | str | None = None
     s3_prefix: str = ""
 
     # multi-s3 backend
@@ -86,7 +85,9 @@ def create_app(settings: HttpRetrieverSettings) -> FastAPI:
     return app
 
 
-def build_retriever_from_settings(settings: HttpRetrieverSettings) -> LocalShardRetriever | S3ShardRetriever:
+def build_retriever_from_settings(
+    settings: HttpRetrieverSettings,
+) -> LocalShardRetriever | S3ShardRetriever | MultiS3ShardRetriever:
     """Instantiate the proper retriever based on settings."""
 
     if settings.backend == "local":

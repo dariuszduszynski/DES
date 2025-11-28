@@ -1,7 +1,6 @@
 from datetime import datetime
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from des_core.http_retriever import HttpRetrieverSettings, create_app

@@ -1,8 +1,5 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Any
-
-import pytest
 
 from des_core.packer_planner import FileToPack, PlannerConfig
 from des_core.s3_packer import S3PackerResult, pack_files_to_s3

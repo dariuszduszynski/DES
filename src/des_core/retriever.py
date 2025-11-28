@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Iterator, List
+from typing import Iterator, List
 
 from .routing import locate_shard, normalize_uid
 from .shard_io import ShardReader

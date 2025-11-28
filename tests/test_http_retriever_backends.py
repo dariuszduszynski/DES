@@ -36,7 +36,7 @@ def test_http_retriever_local_backend_still_works(tmp_path: Path) -> None:
     app = create_app(settings)
     client = TestClient(app)
 
-    resp = client.get(f"/files/100", params={"created_at": created.isoformat()})
+    resp = client.get("/files/100", params={"created_at": created.isoformat()})
     assert resp.status_code == 200
     assert resp.content == b"a"
 

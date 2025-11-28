@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from threading import RLock
 from typing import Generic, Hashable, TypeVar
 
-
 K = TypeVar("K", bound=Hashable)
 V = TypeVar("V")
 

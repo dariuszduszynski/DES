@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional
-import tempfile
+from typing import Iterable, cast
 
 import boto3
-from botocore.client import BaseClient
 
-from .packer import PackerResult, ShardWriteResult, pack_files_to_directory
-from .packer_planner import FileToPack, PlannerConfig, ShardKey
-from .s3_retriever import S3Config, normalize_prefix
+from .packer import ShardWriteResult, pack_files_to_directory
+from .packer_planner import FileToPack, PlannerConfig
+from .s3_retriever import S3Config, S3WriteClientProtocol, normalize_prefix
 
 
 @dataclass
@@ -36,7 +35,7 @@ def pack_files_to_s3(
     *,
     tmp_dir: Path | None = None,
     delete_local: bool = True,
-    client: BaseClient | None = None,
+    client: S3WriteClientProtocol | None = None,
 ) -> S3PackerResult:
     """Plan, write, and upload DES shard files to S3.
 
@@ -51,10 +50,14 @@ def pack_files_to_s3(
 
     def _run(directory: Path) -> S3PackerResult:
         packer_result = pack_files_to_directory(files_list, directory, planner_config)
-        s3_client: BaseClient = client or boto3.client(
-            "s3",
-            region_name=s3_config.region_name,
-            endpoint_url=s3_config.endpoint_url,
+        s3_client: S3WriteClientProtocol = cast(
+            S3WriteClientProtocol,
+            client
+            or boto3.client(
+                "s3",
+                region_name=s3_config.region_name,
+                endpoint_url=s3_config.endpoint_url,
+            ),
         )
         prefix = normalize_prefix(s3_config.prefix)
 

@@ -33,8 +33,6 @@ def make_two_zones(n_bits: int = 4):
 
 
 def test_multi_s3_retriever_routes_to_correct_zone(monkeypatch: pytest.MonkeyPatch):
-    calls = []
-
     class DummyLocation:
         def __init__(self, shard_index: int):
             self.shard_index = shard_index

@@ -22,11 +22,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+compression = [
+  "zstandard>=0.23.0",
+  "lz4>=4.3.2",
+]
+s3 = [
+  "boto3>=1.35.0",
+]
 dev = [
   "pytest>=7.4",
+  "pytest-cov>=4.1",
   "mypy>=1.8",
   "ruff>=0.6",
   "httpx>=0.27",
+  "boto3-stubs[s3]>=1.35.0",
 ]
 
 [project.scripts]
@@ -35,3 +44,23 @@ des-http = "des_core.http_retriever:app"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+strict = false
+mypy_path = ["src"]
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["zstandard", "lz4", "lz4.frame", "prometheus_client"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+exclude = [".git", ".mypy_cache", ".ruff_cache", ".venv", "__pycache__"]
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

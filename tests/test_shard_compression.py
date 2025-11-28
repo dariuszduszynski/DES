@@ -1,11 +1,8 @@
-from pathlib import Path
 import tempfile
-
-import pytest
+from pathlib import Path
 
 from des_core.compression import (
     CompressionCodec,
-    aggressive_zstd_config,
     balanced_zstd_config,
     speed_lz4_config,
 )

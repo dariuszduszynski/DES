@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List
 
 from .routing import locate_shard
@@ -21,7 +22,7 @@ class FileToPack:
     uid: str
     created_at: datetime
     size_bytes: int
-    source_path: str | None = None
+    source_path: Path | str | None = None
 
 
 @dataclass(frozen=True)
