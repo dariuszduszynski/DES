@@ -1,4 +1,4 @@
-# Datavision Easy Store (DES)
+# Data Easy Store (DES)
 
 Pack huge numbers of small files into larger, S3-optimized shard objects. DES gives deterministic routing (no DB), pluggable compression, and fast retrieval using S3 range-GET (footer → index → payload). It ships with local/S3/multi-S3 backends, a packer CLI, and HTTP retriever service.
 
