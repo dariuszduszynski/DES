@@ -89,3 +89,53 @@ def test_load_settings_from_env_s3(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert settings.backend == "s3"
     assert settings.s3_bucket == "bucket"
+
+
+class FakeMultiS3Retriever:
+    def __init__(self, zones, n_bits):
+        self.zones = zones
+        self.n_bits = n_bits
+        self.calls: list[tuple[str, str]] = []
+
+    def get_file(self, uid: str, created_at: datetime) -> bytes:
+        self.calls.append((uid, created_at.isoformat()))
+        return b"multi-s3-payload"
+
+
+def test_http_multi_s3_backend(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def fake_load_zones_config(path):
+        return 8, []
+
+    monkeypatch.setattr(http_retriever, "load_zones_config", fake_load_zones_config)
+    monkeypatch.setattr(http_retriever, "MultiS3ShardRetriever", FakeMultiS3Retriever)
+
+    settings = http_retriever.HttpRetrieverSettings(
+        backend="multi_s3",
+        zones_config_path=tmp_path / "zones.yaml",
+    )
+
+    app = http_retriever.create_app(settings)
+    client = TestClient(app)
+
+    resp = client.get("/files/uid-123", params={"created_at": "2024-01-01T00:00:00Z"})
+    assert resp.status_code == 200
+    assert resp.content == b"multi-s3-payload"
+
+
+def test_load_settings_from_env_multi_s3(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DES_BACKEND", "multi_s3")
+    zones_path = tmp_path / "zones.yaml"
+    zones_path.write_text("{}")
+    monkeypatch.setenv("DES_ZONES_CONFIG", str(zones_path))
+
+    settings = _load_settings_from_env()
+    assert settings.backend == "multi_s3"
+    assert settings.zones_config_path == zones_path
+
+
+def test_load_settings_from_env_multi_s3_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DES_BACKEND", "multi_s3")
+    monkeypatch.delenv("DES_ZONES_CONFIG", raising=False)
+
+    with pytest.raises(RuntimeError):
+        _load_settings_from_env()

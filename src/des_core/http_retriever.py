@@ -15,14 +15,16 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import AnyUrl, BaseModel
 
+from .multi_s3_retriever import MultiS3ShardRetriever
 from .retriever import LocalRetrieverConfig, LocalShardRetriever, make_local_config
 from .s3_retriever import S3Config, S3ShardRetriever, S3ShardStorage
+from .zone_config_loader import load_zones_config
 
 
 class HttpRetrieverSettings(BaseModel):
     """Settings for the DES HTTP retriever service."""
 
-    backend: Literal["local", "s3"] = "local"
+    backend: Literal["local", "s3", "multi_s3"] = "local"
 
     # local backend
     base_dir: Path | None = None
@@ -35,6 +37,9 @@ class HttpRetrieverSettings(BaseModel):
     s3_region_name: str | None = None
     s3_endpoint_url: AnyUrl | None = None
     s3_prefix: str = ""
+
+    # multi-s3 backend
+    zones_config_path: Path | None = None
 
 
 def _parse_created_at(value: str) -> datetime:
@@ -94,12 +99,27 @@ def build_retriever_from_settings(settings: HttpRetrieverSettings) -> LocalShard
         storage = S3ShardStorage(s3_config)
         return S3ShardRetriever(storage, n_bits=settings.n_bits)
 
+    if settings.backend == "multi_s3":
+        if settings.zones_config_path is None:
+            raise ValueError("zones_config_path must be provided for multi_s3 backend")
+        n_bits, zones = load_zones_config(settings.zones_config_path)
+        return MultiS3ShardRetriever(zones=zones, n_bits=n_bits)
+
     raise ValueError(f"Unsupported backend: {settings.backend}")
 
 
 def _load_settings_from_env() -> HttpRetrieverSettings:
     backend = os.environ.get("DES_BACKEND", "local").lower()
     n_bits = int(os.environ.get("DES_N_BITS", "8"))
+
+    if backend == "multi_s3":
+        zones_path_env = os.environ.get("DES_ZONES_CONFIG")
+        if not zones_path_env:
+            raise RuntimeError("DES_ZONES_CONFIG must be set when DES_BACKEND=multi_s3")
+        return HttpRetrieverSettings(
+            backend="multi_s3",
+            zones_config_path=Path(zones_path_env),
+        )
 
     if backend == "s3" or os.environ.get("DES_S3_BUCKET"):
         return HttpRetrieverSettings(
