@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List
 
+import pytest
+
 from des_core.db_connector import ArchiveStatistics, SourceFileRecord
 from des_core.migration_orchestrator import MigrationOrchestrator, MigrationResult
 from des_core.packer import PackerResult, ShardWriteResult
@@ -139,7 +141,7 @@ def test_mark_failure(tmp_path: Path):
     assert any("Failed to mark" in err for err in result.errors)
 
 
-def test_cleanup_failure(tmp_path: Path):
+def test_cleanup_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     f1 = tmp_path / "f1.bin"
     _make_file(f1, b"a" * 10)
     now = datetime.now(timezone.utc)
@@ -148,12 +150,18 @@ def test_cleanup_failure(tmp_path: Path):
 
     class DeletingPacker(FakePacker):
         def pack_files(self, files: List) -> PackerResult:
-            res = super().pack_files(files)
-            # make file read-only to simulate deletion failure
-            Path(files[0].source_path).chmod(0o400)
-            return res
+            return super().pack_files(files)
 
     orchestrator = MigrationOrchestrator(db, DeletingPacker(), archive_age_days=5, batch_size=10, delete_source_files=True)
+
+    original_unlink = Path.unlink
+
+    def failing_unlink(self, missing_ok: bool = False) -> None:  # type: ignore[override]
+        if self == f1:
+            raise OSError("cannot delete")
+        original_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", failing_unlink)
 
     result = orchestrator.run_migration_cycle()
 
