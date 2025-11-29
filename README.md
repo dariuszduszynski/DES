@@ -176,6 +176,11 @@ ruff check src tests
 mypy src tests
 ```
 
+Dry-run migration stats (Story 3):
+```bash
+des-stats --db-url "postgresql+psycopg://user:pass@host/db" --table source_files --cutoff "2024-01-01T00:00:00Z"
+```
+
 ## Limitations & roadmap
 - No built-in auth for HTTP retriever.
 - Multi-S3 routing is read-side only; write replication is manual.

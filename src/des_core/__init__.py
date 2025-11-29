@@ -11,6 +11,7 @@ from .compression import (
 )
 from .database_source import DatabaseSourceProvider, SourceDatabaseConfig, SourceRecord
 from .db_archive_marker import advance_archive_marker
+from .db_connector import SourceDatabase, SourceFileRecord
 from .http_retriever import (
     HttpRetrieverSettings,
     create_app,
@@ -83,6 +84,8 @@ __all__ = [
     "ArchiveConfigRepository",
     "floor_to_midnight",
     "advance_archive_marker",
+    "SourceDatabase",
+    "SourceFileRecord",
     "LocalRetrieverConfig",
     "LocalShardRetriever",
     "make_local_config",
