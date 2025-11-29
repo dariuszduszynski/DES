@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: des-migrator-sa
+  labels:
+    app: des-migrator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: des-migrator-role
+  labels:
+    app: des-migrator
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: des-migrator-rolebinding
+  labels:
+    app: des-migrator
+subjects:
+  - kind: ServiceAccount
+    name: des-migrator-sa
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: des-migrator-role

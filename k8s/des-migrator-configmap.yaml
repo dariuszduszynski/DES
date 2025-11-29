@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: des-migrator-config
+  labels:
+    app: des-migrator
+data:
+  migration-config.json: |
+    {
+      "database": {
+        "url": "postgresql+psycopg://des_migrator:${DB_PASSWORD}@postgres:5432/des",
+        "table_name": "source_files",
+        "uid_column": "uid",
+        "created_at_column": "created_at",
+        "file_location_column": "file_location",
+        "size_bytes_column": "size_bytes",
+        "archived_column": "archived"
+      },
+      "migration": {
+        "archive_age_days": 7,
+        "batch_size": 1000,
+        "delete_source_files": false
+      },
+      "packer": {
+        "output_dir": "/data/shards",
+        "max_shard_size": 1000000000,
+        "n_bits": 8
+      }
+    }

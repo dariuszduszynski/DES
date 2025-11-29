@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: des-migrator
+  labels:
+    app: des-migrator
+spec:
+  schedule: "0 */6 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: des-migrator
+        spec:
+          serviceAccountName: des-migrator-sa
+          restartPolicy: Never
+          containers:
+            - name: des-migrator
+              image: des-migrator:latest
+              imagePullPolicy: IfNotPresent
+              command: ["des-migrate", "--config", "/config/migration-config.json"]
+              env:
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: des-migrator-db-secret
+                      key: db-password
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "1"
+                  memory: "1Gi"
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                - name: source-files
+                  mountPath: /data/source
+          volumes:
+            - name: config
+              configMap:
+                name: des-migrator-config
+            - name: source-files
+              persistentVolumeClaim:
+                claimName: des-migrator-source-pvc
