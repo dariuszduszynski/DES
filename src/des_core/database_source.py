@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, AsyncIterator, Iterable, Protocol
 
+try:  # pragma: no cover - optional check
+    import sqlite3
+except Exception:  # pragma: no cover - defensive
+    sqlite3 = None  # type: ignore
+
 from .archive_config import ArchiveWindow
 
 
@@ -47,6 +52,7 @@ class DatabaseSourceProvider:
     def __init__(self, conn: SupportsSelect, config: SourceDatabaseConfig):
         self._conn = conn
         self._cfg = config
+        self._is_sqlite = sqlite3 is not None and isinstance(conn, sqlite3.Connection)
 
     async def iter_records_for_window(self, window: ArchiveWindow) -> AsyncIterator[SourceRecord]:
         """Yield SourceRecord rows in (window_start, window_end], ordered by (created_at, uid)."""
@@ -87,14 +93,20 @@ class DatabaseSourceProvider:
             f"{self._cfg.created_at_column} > ?",
             f"{self._cfg.created_at_column} <= ?",
         ]
-        params: list[Any] = [window.window_start, window.window_end]
+        params: list[Any] = [self._normalize_param(window.window_start), self._normalize_param(window.window_end)]
 
         if last_created_at is not None and last_uid is not None:
             conditions.append(
                 f"({self._cfg.created_at_column} > ? OR "
                 f"({self._cfg.created_at_column} = ? AND {self._cfg.uid_column} > ?))"
             )
-            params.extend([last_created_at, last_created_at, last_uid])
+            params.extend(
+                [
+                    self._normalize_param(last_created_at),
+                    self._normalize_param(last_created_at),
+                    last_uid,
+                ]
+            )
 
         shard_condition = self._shard_filter_condition()
         if shard_condition:
@@ -129,6 +141,13 @@ class DatabaseSourceProvider:
             row_values = list(row)
             result.append({col: row_values[idx] for idx, col in enumerate(columns)})
         return result
+
+    def _normalize_param(self, value: Any) -> Any:
+        """Avoid deprecated sqlite datetime adapter on 3.12 by passing strings."""
+
+        if self._is_sqlite and isinstance(value, datetime):
+            return value.isoformat()
+        return value
 
 
 def _coerce_datetime(value: Any) -> datetime:

@@ -7,7 +7,7 @@ name = "des-core"
 version = "0.1.0"
 description = "Core routing utilities for Datavision Easy Store (DES)."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "MIT"
 authors = [
   { name = "DES Team" }
@@ -46,7 +46,7 @@ des-http = "des_core.http_retriever:app"
 testpaths = ["tests"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 check_untyped_defs = true
 strict = false
 mypy_path = ["src"]
@@ -58,7 +58,7 @@ ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 130
-target-version = "py311"
+target-version = "py312"
 exclude = [".git", ".mypy_cache", ".ruff_cache", ".venv", "__pycache__"]
 src = ["src", "tests"]
 
