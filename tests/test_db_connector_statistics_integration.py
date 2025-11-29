@@ -8,7 +8,7 @@ import pytest
 pytest.importorskip("testcontainers.postgres")
 
 from sqlalchemy import Boolean, Column, DateTime, Integer, MetaData, String, Table, create_engine  # type: ignore[no-redef]
-from testcontainers.postgres import PostgresContainer  # type: ignore[import-not-found]
+from testcontainers.postgres import PostgresContainer  # type: ignore[import-not-found,import-untyped]
 
 from des_core.db_connector import SourceDatabase
 
