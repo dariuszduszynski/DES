@@ -1,5 +1,6 @@
 """Core utilities for Datavision Easy Store (DES)."""
 
+from .archive_config import ArchiveConfigRepository, ArchiveWindow, floor_to_midnight
 from .compression import (
     CompressionCodec,
     CompressionConfig,
@@ -8,6 +9,8 @@ from .compression import (
     balanced_zstd_config,
     speed_lz4_config,
 )
+from .database_source import DatabaseSourceProvider, SourceDatabaseConfig, SourceRecord
+from .db_archive_marker import advance_archive_marker
 from .http_retriever import (
     HttpRetrieverSettings,
     create_app,
@@ -76,6 +79,10 @@ __all__ = [
     "ShardWriter",
     "PackerResult",
     "ShardWriteResult",
+    "ArchiveWindow",
+    "ArchiveConfigRepository",
+    "floor_to_midnight",
+    "advance_archive_marker",
     "LocalRetrieverConfig",
     "LocalShardRetriever",
     "make_local_config",
@@ -106,4 +113,7 @@ __all__ = [
     "build_pack_plan",
     "estimate_shard_counts",
     "pack_files_to_directory",
+    "DatabaseSourceProvider",
+    "SourceDatabaseConfig",
+    "SourceRecord",
 ]
