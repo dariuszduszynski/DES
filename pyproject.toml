@@ -21,6 +21,7 @@ dependencies = [
   "prometheus-client>=0.20.0",
   "sqlalchemy>=2.0.0",
   "psycopg[binary]>=3.1.0",
+  "pyyaml>=6.0.0",
 ]
 
 [project.optional-dependencies]
@@ -40,12 +41,14 @@ dev = [
   "boto3-stubs[s3]>=1.35.0",
   "testcontainers[postgresql]>=4.9.0",
   "pytest-mock>=3.14.0",
+  "types-PyYAML",
 ]
 
 [project.scripts]
 des-pack = "des_core.cli_packer:main"
 des-http = "des_core.http_retriever:app"
 des-stats = "des_core.cli_stats:main"
+des-migrate = "des_core.cli_migrator:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

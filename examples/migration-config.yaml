@@ -1,0 +1,18 @@
+database:
+  url: sqlite+pysqlite:///./example.db
+  table_name: files
+  uid_column: uid
+  created_at_column: created_at
+  file_location_column: file_location
+  size_bytes_column: size_bytes
+  archived_column: archived
+
+migration:
+  archive_age_days: 7
+  batch_size: 100
+  delete_source_files: false
+
+packer:
+  output_dir: ./des_output
+  max_shard_size: 1000000000
+  n_bits: 8
