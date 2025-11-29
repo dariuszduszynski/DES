@@ -44,6 +44,7 @@ dev = [
   "testcontainers[postgresql]>=4.9.0",
   "pytest-mock>=3.14.0",
   "types-PyYAML",
+  "hypothesis>=6.112.0",
 ]
 
 [project.scripts]

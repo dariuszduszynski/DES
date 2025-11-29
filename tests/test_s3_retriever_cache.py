@@ -3,7 +3,7 @@ from pathlib import Path
 
 from des_core.cache import LRUCache, LRUCacheConfig
 from des_core.compression import balanced_zstd_config
-from des_core.s3_retriever import IndexCacheKey, S3Config, S3ShardRetriever, S3ShardStorage
+from des_core.s3_retriever import CachedIndex, IndexCacheKey, S3Config, S3ShardRetriever, S3ShardStorage
 from des_core.shard_io import ShardWriter
 
 
@@ -59,7 +59,7 @@ def _make_shard(tmp_path: Path) -> tuple[dict[str, bytes], dict[str, bytes]]:
 def test_second_get_uses_cached_index(tmp_path: Path) -> None:
     data_by_key, payloads = _make_shard(tmp_path)
     fake_client = FakeS3Client(data_by_key)
-    cache = LRUCache[IndexCacheKey, dict[str, object]](LRUCacheConfig(max_size=4))
+    cache = LRUCache[IndexCacheKey, CachedIndex](LRUCacheConfig(max_size=4))
 
     storage = S3ShardStorage(S3Config(bucket="bucket"), client=fake_client)
     retriever = S3ShardRetriever(storage, n_bits=8, index_cache=cache)
@@ -68,7 +68,7 @@ def test_second_get_uses_cached_index(tmp_path: Path) -> None:
 
     retriever.get_file("file-a", created)
     first_call_count = len(fake_client.calls)
-    assert first_call_count == 3
+    assert first_call_count == 4
 
     fake_client.calls.clear()
     retriever.get_file("file-b", created)
@@ -77,8 +77,8 @@ def test_second_get_uses_cached_index(tmp_path: Path) -> None:
 
 
 def test_cache_eviction_respects_max_size(tmp_path: Path) -> None:
-    cache = LRUCache[IndexCacheKey, dict[str, object]](LRUCacheConfig(max_size=2))
+    cache = LRUCache[IndexCacheKey, CachedIndex](LRUCacheConfig(max_size=2))
 
     for i in range(3):
-        cache.set(("bucket", f"key-{i}"), {})
+        cache.set(("bucket", f"key-{i}"), (1, {}))
     assert len(cache) == 2

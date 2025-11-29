@@ -10,12 +10,17 @@ from typing import Any, List, Optional, Protocol, Tuple, cast
 import boto3
 from botocore.response import StreamingBody
 
+from .bigfiles import build_bigfile_key
 from .cache import Cache, LRUCache, LRUCacheConfig
+from .config import DESConfig
 from .metrics import DES_RETRIEVAL_SECONDS, DES_RETRIEVALS_TOTAL, DES_S3_RANGE_CALLS_TOTAL
 from .routing import locate_shard, normalize_uid
 from .shard_io import (
+    HEADER_SIZE,
     FOOTER_SIZE,
+    ShardFileEntry,
     decompress_entry,
+    parse_header,
     parse_footer,
     parse_index,
 )
@@ -115,6 +120,7 @@ def _extract_total_size(response: dict[str, Any]) -> int:
 
 
 IndexCacheKey = Tuple[str, str]  # (bucket, object key)
+CachedIndex = Tuple[int, dict[str, ShardFileEntry]]  # (version, parsed index)
 
 
 class S3ShardRetriever:
@@ -127,7 +133,8 @@ class S3ShardRetriever:
         s3_storage: S3ShardStorage | S3Config,
         n_bits: int = 8,
         *,
-        index_cache: Cache[IndexCacheKey, dict[str, Any]] | None = None,
+        index_cache: Cache[IndexCacheKey, CachedIndex] | None = None,
+        config: DESConfig | None = None,
     ) -> None:
         self._s3: S3ShardStorage
         if isinstance(s3_storage, S3Config):
@@ -135,14 +142,15 @@ class S3ShardRetriever:
         else:
             self._s3 = s3_storage
         self._n_bits = n_bits
-        self._index_cache = index_cache or LRUCache[IndexCacheKey, dict[str, Any]](LRUCacheConfig(max_size=1024))
+        self._index_cache = index_cache or LRUCache[IndexCacheKey, CachedIndex](LRUCacheConfig(max_size=1024))
+        self._config = config or DESConfig.from_env()
 
     def has_file(self, uid: str | int, created_at: datetime) -> bool:
         normalized_uid = normalize_uid(uid)
         date_dir, shard_hex = self._resolve_key_components(normalized_uid, created_at)
 
         for key in self._s3.list_candidate_keys(date_dir, shard_hex):
-            index = self._get_index(key)
+            _, index = self._get_index_and_version(key)
             if normalized_uid in index:
                 return True
         return False
@@ -165,30 +173,49 @@ class S3ShardRetriever:
         date_dir, shard_hex = self._resolve_key_components(normalized_uid, created_at)
 
         for key in self._s3.list_candidate_keys(date_dir, shard_hex):
-            index = self._get_index(key)
+            _, index = self._get_index_and_version(key)
             entry = index.get(normalized_uid)
             if entry is None:
                 continue
+            if entry.is_bigfile:
+                return self._get_bigfile(key, entry)
+
+            if entry.offset is None or entry.compressed_size is None:
+                raise ValueError(f"Inline entry missing offsets for UID {normalized_uid!r}")
             DES_S3_RANGE_CALLS_TOTAL.labels(backend=self.backend_name, type="payload").inc()
             payload = self._s3.get_range(key, entry.offset, entry.compressed_size)
             return decompress_entry(entry, payload)
 
         raise KeyError(f"UID {normalized_uid!r} not found for date {created_at.date()}")
 
-    def _get_index(self, key: str) -> dict[str, Any]:
+    def _get_index_and_version(self, key: str) -> CachedIndex:
         cache_key = (self._s3._config.bucket, key)
         cached = self._index_cache.get(cache_key)
         if cached is not None:
             return cached
 
+        DES_S3_RANGE_CALLS_TOTAL.labels(backend=self.backend_name, type="header").inc()
+        header_bytes = self._s3.get_range(key, 0, HEADER_SIZE)
+        header = parse_header(header_bytes)
         DES_S3_RANGE_CALLS_TOTAL.labels(backend=self.backend_name, type="footer").inc()
         footer_bytes, total_size = self._s3.get_tail(key, FOOTER_SIZE)
         footer = parse_footer(footer_bytes, total_size=total_size)
         DES_S3_RANGE_CALLS_TOTAL.labels(backend=self.backend_name, type="index").inc()
         index_bytes = self._s3.get_range(key, footer.index_offset, footer.index_size)
-        index = parse_index(index_bytes, data_section_end=footer.index_offset)
-        self._index_cache.set(cache_key, index)
-        return index
+        index = parse_index(index_bytes, data_section_end=footer.index_offset, version=header.version)
+        result: CachedIndex = (header.version, index)
+        self._index_cache.set(cache_key, result)
+        return result
+
+    def _get_bigfile(self, shard_key: str, entry: ShardFileEntry) -> bytes:
+        if entry.bigfile_hash is None:
+            raise ValueError("Bigfile entry missing hash.")
+        bf_key = build_bigfile_key(shard_key, self._config.bigfiles_prefix, entry.bigfile_hash)
+        DES_S3_RANGE_CALLS_TOTAL.labels(backend=self.backend_name, type="bigfile").inc()
+        data = self._s3.get_object_bytes(bf_key)
+        if entry.bigfile_size is not None and len(data) != entry.bigfile_size:
+            raise ValueError(f"Bigfile size mismatch for UID {entry.uid}")
+        return data
 
     def _resolve_key_components(self, uid: str, created_at: datetime) -> tuple[str, str]:
         shard = locate_shard(uid=uid, created_at=created_at, n_bits=self._n_bits)

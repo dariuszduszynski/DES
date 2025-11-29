@@ -3,7 +3,7 @@ from pathlib import Path
 
 from des_core.compression import balanced_zstd_config
 from des_core.s3_retriever import S3Config, S3ShardRetriever, S3ShardStorage
-from des_core.shard_io import FOOTER_SIZE, ShardWriter
+from des_core.shard_io import FOOTER_SIZE, HEADER_SIZE, ShardWriter
 
 
 class FakeBody:
@@ -68,13 +68,14 @@ def test_s3_retriever_uses_range_requests(tmp_path: Path) -> None:
     data = retriever.get_file("file-a", created)
 
     assert data == payloads["file-a"]
-    assert len(fake_client.calls) == 3
-    assert fake_client.calls[0]["Range"] == f"bytes=-{FOOTER_SIZE}"
+    assert len(fake_client.calls) == 4
+    assert fake_client.calls[0]["Range"] == f"bytes=0-{HEADER_SIZE - 1}"
+    assert fake_client.calls[1]["Range"] == f"bytes=-{FOOTER_SIZE}"
     # verify index range call starts at computed offset
-    index_call = fake_client.calls[1]["Range"]
+    index_call = fake_client.calls[2]["Range"]
     assert index_call.startswith("bytes=")
     # payload range should include offset and length
-    payload_call = fake_client.calls[2]["Range"]
+    payload_call = fake_client.calls[3]["Range"]
     assert payload_call.startswith("bytes=")
 
 
@@ -91,4 +92,4 @@ def test_multiple_gets_issue_separate_range_calls(tmp_path: Path) -> None:
     retriever.get_file("file-a", created)
     retriever.get_file("file-b", created)
 
-    assert len(fake_client.calls) == 4  # first call footer/index/payload, second payload only from cached index
+    assert len(fake_client.calls) == 5  # header/footer/index/payload first, payload only second (cached index)

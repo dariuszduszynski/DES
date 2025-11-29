@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator, List
 
+from .config import DESConfig
 from .routing import locate_shard, normalize_uid
 from .shard_io import ShardReader
 
@@ -28,18 +29,19 @@ def make_local_config(base_dir: str | Path, n_bits: int = 8) -> LocalRetrieverCo
 class LocalShardRetriever:
     """Retrieve files from local DES shard files produced by the packer."""
 
-    def __init__(self, config: LocalRetrieverConfig) -> None:
+    def __init__(self, config: LocalRetrieverConfig, des_config: DESConfig | None = None) -> None:
         base_dir = config.base_dir
         if not base_dir.exists() or not base_dir.is_dir():
             raise FileNotFoundError(f"Base directory does not exist: {base_dir}")
         self.config = config
+        self._des_config = des_config or DESConfig.from_env()
 
     def has_file(self, uid: str | int, created_at: datetime) -> bool:
         """Return True if the file exists in any matching shard."""
 
         normalized_uid = normalize_uid(uid)
         for path in self._iter_candidate_shard_paths(normalized_uid, created_at):
-            with ShardReader.from_path(path) as reader:
+            with ShardReader.from_path(path, config=self._des_config) as reader:
                 if reader.has_uid(normalized_uid):
                     return True
         return False
@@ -49,7 +51,7 @@ class LocalShardRetriever:
 
         normalized_uid = normalize_uid(uid)
         for path in self._iter_candidate_shard_paths(normalized_uid, created_at):
-            with ShardReader.from_path(path) as reader:
+            with ShardReader.from_path(path, config=self._des_config) as reader:
                 if reader.has_uid(normalized_uid):
                     return reader.read_file(normalized_uid)
         raise KeyError(f"UID {normalized_uid!r} not found for date {created_at.date()} in base_dir {self.config.base_dir}")

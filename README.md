@@ -5,11 +5,18 @@ Pack huge numbers of small files into larger, S3-optimized shard objects. DES gi
 ## Key features
 - Append-only shard format with header/data/index/footer.
 - Compression (`zstd`, `lz4`) with smart skipping of already-compressed extensions.
-- Optimized S3 retriever: three range-GETs only (footer, index, payload).
+- Optimized S3 retriever: range-GETs for header/footer/index plus payload (or BigFile object when needed).
 - Multi-zone S3 routing (`MultiS3ShardRetriever`) based on shard index ranges.
 - HTTP retriever with backends: `local`, `s3`, `multi_s3`; Prometheus metrics at `/metrics`.
 - In-memory index cache to reduce repeated S3 calls.
 - Packer CLI (`des-pack`), Docker images, docker-compose, and K8s job manifests.
+
+## BigFiles support
+- Payloads larger than `DES_BIG_FILE_THRESHOLD_BYTES` (default 10 MiB) are written outside the `.des` body under a sibling `_bigFiles/` directory; the shard stores only metadata (`is_bigfile`, `bigfile_hash`, `bigfile_size`, `meta`).
+- Why: keep shard sizes predictable and avoid inflating `.des` objects with rare, huge files.
+- Config: `DES_BIG_FILE_THRESHOLD_BYTES`, `DES_BIGFILES_PREFIX` (defaults via `DESConfig.from_env()` and passed into `ShardWriter`/`ShardReader`/`S3ShardRetriever`).
+- Layout: local `.../YYYYMMDD/*.des` with `.../YYYYMMDD/_bigFiles/<sha256>`; S3 `s3://bucket/prefix/*.des` with `s3://bucket/prefix/_bigFiles/<sha256>`.
+- Read path: index entries flagged `is_bigfile` are fetched from `_bigFiles/` (local FS or S3) instead of range-GET payloads; inline entries behave as before. Older shards (no bigfiles) continue to read normally.
 
 ## High-level architecture
 - Routing: `des_core.routing.locate_shard` maps `(uid, created_at, n_bits)` to `date_dir`, `shard_index`, `shard_hex`, `object_key`.

@@ -9,6 +9,8 @@ from typing import Iterable, cast
 
 import boto3
 
+from .bigfiles import build_bigfile_key
+from .config import DESConfig
 from .packer import ShardWriteResult, pack_files_to_directory
 from .packer_planner import FileToPack, PlannerConfig
 from .s3_retriever import S3Config, S3WriteClientProtocol, normalize_prefix
@@ -36,6 +38,7 @@ def pack_files_to_s3(
     tmp_dir: Path | None = None,
     delete_local: bool = True,
     client: S3WriteClientProtocol | None = None,
+    des_config: DESConfig | None = None,
 ) -> S3PackerResult:
     """Plan, write, and upload DES shard files to S3.
 
@@ -47,9 +50,10 @@ def pack_files_to_s3(
     files_list = list(files)
     if not files_list:
         return S3PackerResult(uploaded=[])
+    des_cfg = des_config or DESConfig.from_env()
 
     def _run(directory: Path) -> S3PackerResult:
-        packer_result = pack_files_to_directory(files_list, directory, planner_config)
+        packer_result = pack_files_to_directory(files_list, directory, planner_config, des_config=des_cfg)
         s3_client: S3WriteClientProtocol = cast(
             S3WriteClientProtocol,
             client
@@ -62,13 +66,34 @@ def pack_files_to_s3(
         prefix = normalize_prefix(s3_config.prefix)
 
         uploaded: list[UploadedShard] = []
+        uploaded_bigfiles: set[str] = set()
         for shard in packer_result.shards:
             data = shard.path.read_bytes()
             key = f"{prefix}{shard.path.name}"
             s3_client.put_object(Bucket=s3_config.bucket, Key=key, Body=data)
             uploaded.append(UploadedShard(shard=shard, bucket=s3_config.bucket, key=key))
+            for bf_hash in shard.bigfile_hashes:
+                local_path = shard.path.parent / des_cfg.bigfiles_prefix / bf_hash
+                if not local_path.exists():
+                    raise FileNotFoundError(f"Missing bigfile {bf_hash} at {local_path}")
+                bf_key = build_bigfile_key(key, des_cfg.bigfiles_prefix, bf_hash)
+                if bf_key in uploaded_bigfiles:
+                    if delete_local:
+                        local_path.unlink(missing_ok=True)
+                    continue
+                s3_client.put_object(Bucket=s3_config.bucket, Key=bf_key, Body=local_path.read_bytes())
+                uploaded_bigfiles.add(bf_key)
+                if delete_local:
+                    local_path.unlink(missing_ok=True)
             if delete_local:
                 shard.path.unlink(missing_ok=True)
+
+        if delete_local:
+            bigfiles_root = Path(directory) / des_cfg.bigfiles_prefix
+            try:
+                bigfiles_root.rmdir()
+            except OSError:
+                pass
 
         return S3PackerResult(uploaded=uploaded)
 

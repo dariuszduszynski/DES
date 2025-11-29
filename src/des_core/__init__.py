@@ -9,6 +9,7 @@ from .compression import (
     balanced_zstd_config,
     speed_lz4_config,
 )
+from .config import DESConfig
 from .database_source import DatabaseSourceProvider, SourceDatabaseConfig, SourceRecord
 from .db_archive_marker import advance_archive_marker
 from .db_connector import SourceDatabase, SourceFileRecord
@@ -89,6 +90,7 @@ __all__ = [
     "SourceFileRecord",
     "MigrationOrchestrator",
     "MigrationResult",
+    "DESConfig",
     "LocalRetrieverConfig",
     "LocalShardRetriever",
     "make_local_config",

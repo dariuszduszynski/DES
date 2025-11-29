@@ -46,3 +46,9 @@ ConfigMap/Secret/PVC details:
 - ConfigMap mounts the migration config under `/config/migration-config.json`.
 - Secret injects `DB_PASSWORD` for database URL templating.
 - PVC mounts source files under `/data/source`; adjust storage class/size as needed.
+
+## Enabling BigFiles
+- Upgrade packers/retrievers to the BigFiles-aware release (shard header version v2).
+- Set consistent values for `DES_BIG_FILE_THRESHOLD_BYTES` and `DES_BIGFILES_PREFIX` across packer jobs, HTTP retrievers, and any ad-hoc readers (`DESConfig.from_env()` consumes these).
+- Ensure `_bigFiles/` is uploaded alongside `.des` shards when syncing to S3; the S3 packer helper handles this automatically.
+- For local deployments, mount the `_bigFiles/` directory next to the shard path so retrievers can resolve external payloads.
