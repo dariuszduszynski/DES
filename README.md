@@ -181,6 +181,9 @@ Dry-run migration stats (Story 3):
 des-stats --db-url "postgresql+psycopg://user:pass@host/db" --table source_files --cutoff "2024-01-01T00:00:00Z"
 ```
 
+Migration orchestration (Story 4):
+- Configure SourceDatabase, packer, and run MigrationOrchestrator.run_migration_cycle() to fetch → validate → pack → mark → optional cleanup.
+
 ## Limitations & roadmap
 - No built-in auth for HTTP retriever.
 - Multi-S3 routing is read-side only; write replication is manual.

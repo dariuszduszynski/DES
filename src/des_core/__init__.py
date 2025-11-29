@@ -16,6 +16,7 @@ from .http_retriever import (
     HttpRetrieverSettings,
     create_app,
 )
+from .migration_orchestrator import MigrationOrchestrator, MigrationResult
 from .multi_s3_retriever import (
     MultiS3ShardRetriever,
     S3ZoneConfig,
@@ -86,6 +87,8 @@ __all__ = [
     "advance_archive_marker",
     "SourceDatabase",
     "SourceFileRecord",
+    "MigrationOrchestrator",
+    "MigrationResult",
     "LocalRetrieverConfig",
     "LocalShardRetriever",
     "make_local_config",
