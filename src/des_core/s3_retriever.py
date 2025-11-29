@@ -16,12 +16,12 @@ from .config import DESConfig
 from .metrics import DES_RETRIEVAL_SECONDS, DES_RETRIEVALS_TOTAL, DES_S3_RANGE_CALLS_TOTAL
 from .routing import locate_shard, normalize_uid
 from .shard_io import (
-    HEADER_SIZE,
     FOOTER_SIZE,
+    HEADER_SIZE,
     ShardFileEntry,
     decompress_entry,
-    parse_header,
     parse_footer,
+    parse_header,
     parse_index,
 )
 

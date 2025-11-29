@@ -26,7 +26,10 @@ def test_round_trip_zstd_compression() -> None:
                 assert reader.read_file(uid) == data
             # ensure at least one entry was compressed
             assert any(
-                entry.codec == CompressionCodec.ZSTD and entry.compressed_size < entry.uncompressed_size
+                entry.codec == CompressionCodec.ZSTD
+                and entry.compressed_size is not None
+                and entry.uncompressed_size is not None
+                and entry.compressed_size < entry.uncompressed_size
                 for entry in reader.index.values()
             )
 

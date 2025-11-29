@@ -5,8 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from des_core.bigfiles import build_bigfile_key
 from des_core.config import DESConfig
@@ -124,7 +124,8 @@ def test_s3_reader_resolves_bigfile_correctly(tmp_path: Path) -> None:
             source_path=tmp_path / "s3_source.bin",
         )
     ]
-    Path(files[0].source_path).write_bytes(payload)
+    src_path = Path(files[0].source_path)  # type: ignore[arg-type]
+    src_path.write_bytes(payload)
 
     packer_result = pack_files_to_directory(files, tmp_path, PlannerConfig(max_shard_size_bytes=512), des_config=des_cfg)
     shard = packer_result.shards[0]
