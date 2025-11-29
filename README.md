@@ -184,6 +184,24 @@ des-stats --db-url "postgresql+psycopg://user:pass@host/db" --table source_files
 Migration orchestration (Story 4):
 - Configure SourceDatabase, packer, and run MigrationOrchestrator.run_migration_cycle() to fetch → validate → pack → mark → optional cleanup.
 
+Migration from database (Story 5):
+```bash
+# Single run
+des-migrate --config migration-config.json
+
+# Dry run
+des-migrate --config migration-config.json --dry-run
+
+# Continuous
+des-migrate --config migration-config.yaml --continuous --interval 3600
+```
+
+Migration metrics (Story 6):
+- Prometheus metrics: des_migration_cycles_total{status}, des_migration_files_total, des_migration_bytes_total,
+  des_migration_duration_seconds (histogram), des_migration_pending_files, des_migration_batch_size.
+- Expose metrics via `prometheus_client.start_http_server(port)` or integrate the default registry into your HTTP app.
+- Assets: `examples/grafana-dashboard-des-migration.json`, `examples/alerts-des-migration.yml`.
+
 ## Limitations & roadmap
 - No built-in auth for HTTP retriever.
 - Multi-S3 routing is read-side only; write replication is manual.

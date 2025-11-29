@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List
 
-from des_core.db_connector import SourceFileRecord
+from des_core.db_connector import ArchiveStatistics, SourceFileRecord
 from des_core.migration_orchestrator import MigrationOrchestrator, MigrationResult
 from des_core.packer import PackerResult, ShardWriteResult
 from des_core.packer_planner import ShardKey
@@ -15,6 +15,7 @@ class FakeDB:
         self._records = records
         self.marked: List[str] = []
         self.raise_on_mark = False
+        self.stats_calls: List[datetime] = []
 
     def fetch_files_to_archive(self, cutoff_date: datetime, limit: int | None = None):
         return self._records[: limit or len(self._records)]
@@ -24,6 +25,15 @@ class FakeDB:
             raise RuntimeError("mark failure")
         self.marked.extend(uids)
         return len(uids)
+
+    def get_archive_statistics(self, cutoff_date: datetime) -> ArchiveStatistics:
+        self.stats_calls.append(cutoff_date)
+        return {
+            "total_files": len(self._records),
+            "total_size_bytes": 0,
+            "oldest_file": None,
+            "newest_file": None,
+        }
 
 
 class FakePacker:

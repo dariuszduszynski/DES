@@ -1,0 +1,23 @@
+groups:
+  - name: des-migration-alerts
+    rules:
+      - alert: DesMigrationHighFailureRate
+        expr: |
+          (increase(des_migration_cycles_total{status="failure"}[15m])
+           / ignoring(status)
+           increase(des_migration_cycles_total[15m]))
+          > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High DES migration failure rate"
+          description: "More than 20% of migration cycles failed in the last 15 minutes."
+      - alert: DesMigrationBacklogHigh
+        expr: des_migration_pending_files > 10000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DES migration backlog is high"
+          description: "Pending files exceed 10k for over 15 minutes."

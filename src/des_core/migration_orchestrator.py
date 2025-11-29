@@ -9,7 +9,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Protocol
 
-from .db_connector import SourceFileRecord
+from .db_connector import ArchiveStatistics, SourceFileRecord
+from .metrics import (
+    DES_MIGRATION_BATCH_SIZE,
+    DES_MIGRATION_BYTES_TOTAL,
+    DES_MIGRATION_CYCLES_TOTAL,
+    DES_MIGRATION_DURATION_SECONDS,
+    DES_MIGRATION_FILES_TOTAL,
+    DES_MIGRATION_PENDING_FILES,
+)
 from .packer import PackerResult
 from .packer_planner import FileToPack
 
@@ -42,6 +50,8 @@ class SourceDatabaseInterface(Protocol):
 
     def mark_as_archived(self, uids: List[str]) -> int: ...
 
+    def get_archive_statistics(self, cutoff_date: datetime) -> ArchiveStatistics: ...
+
 
 class MigrationOrchestrator:
     """Coordinates fetching, validating, packing, marking, and optional cleanup of source files."""
@@ -59,6 +69,7 @@ class MigrationOrchestrator:
         self._archive_age_days = archive_age_days
         self._batch_size = batch_size
         self._delete_source_files = delete_source_files
+        DES_MIGRATION_BATCH_SIZE.set(batch_size)
 
     def run_migration_cycle(self) -> MigrationResult:
         """Execute a full migration cycle.
@@ -72,7 +83,24 @@ class MigrationOrchestrator:
         """
 
         start = time.monotonic()
+        status = "success"
+        result: MigrationResult | None = None
         cutoff = datetime.now(timezone.utc) - timedelta(days=self._archive_age_days)
+        self._update_pending_metrics(cutoff)
+        try:
+            result = self._execute_cycle(cutoff)
+            DES_MIGRATION_FILES_TOTAL.inc(result.files_processed)
+            DES_MIGRATION_BYTES_TOTAL.inc(result.total_size_bytes)
+            return result
+        except Exception:
+            status = "failure"
+            raise
+        finally:
+            DES_MIGRATION_CYCLES_TOTAL.labels(status=status).inc()
+            DES_MIGRATION_DURATION_SECONDS.observe(time.monotonic() - start)
+
+    def _execute_cycle(self, cutoff: datetime) -> MigrationResult:
+        start = time.monotonic()
         errors: List[str] = []
         files_processed = 0
         files_migrated = 0
@@ -83,22 +111,7 @@ class MigrationOrchestrator:
         valid_files: List[FileToPack] = []
         file_paths_for_cleanup: List[Path] = []
 
-        try:
-            records = self._db.fetch_files_to_archive(cutoff, limit=self._batch_size)
-        except Exception as exc:  # pragma: no cover - fatal path
-            duration = time.monotonic() - start
-            msg = f"Failed to fetch files to archive: {exc}"
-            logger.error(msg)
-            errors.append(msg)
-            return MigrationResult(
-                files_processed=0,
-                files_migrated=0,
-                files_failed=0,
-                shards_created=0,
-                total_size_bytes=0,
-                duration_seconds=duration,
-                errors=errors,
-            )
+        records = self._db.fetch_files_to_archive(cutoff, limit=self._batch_size)
 
         files_processed = len(records)
         logger.info("Fetched %d file(s) to archive (cutoff=%s)", files_processed, cutoff.isoformat())
@@ -193,3 +206,15 @@ class MigrationOrchestrator:
                     f"Validation failed for {record.uid}: size mismatch (expected {record.size_bytes}, got {actual_size})"
                 )
         return None
+
+    def _update_pending_metrics(self, cutoff: datetime) -> None:
+        try:
+            stats = self._db.get_archive_statistics(cutoff)
+            total_files_raw = stats.get("total_files", 0)
+            try:
+                total_files = int(total_files_raw)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                total_files = 0
+            DES_MIGRATION_PENDING_FILES.set(total_files)
+        except Exception as exc:
+            logger.debug("Failed to update pending metrics: %s", exc)

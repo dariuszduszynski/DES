@@ -1,0 +1,60 @@
+{
+  "title": "DES Migration Overview",
+  "panels": [
+    {
+      "type": "graph",
+      "title": "Migration Cycles by Status",
+      "targets": [
+        {
+          "expr": "sum by (status) (increase(des_migration_cycles_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Files Processed (rate)",
+      "targets": [
+        {
+          "expr": "rate(des_migration_files_total[5m])",
+          "legendFormat": "files/s"
+        }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Bytes Migrated (rate)",
+      "targets": [
+        {
+          "expr": "rate(des_migration_bytes_total[5m])",
+          "legendFormat": "bytes/s"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Pending Files",
+      "targets": [
+        {
+          "expr": "des_migration_pending_files"
+        }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Cycle Duration (p50/p95)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, rate(des_migration_duration_seconds_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(des_migration_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 16,
+  "version": 1
+}
