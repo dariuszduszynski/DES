@@ -70,30 +70,44 @@ def _substitute_env(value: Any) -> Any:
     return value
 
 
+# Extracted placeholder parsing/resolution helpers to flatten branching in _replace_placeholders.
+def _find_placeholder_end(text: str, start_idx: int) -> int:
+    end = text.find("}", start_idx)
+    if end == -1:
+        raise ValueError(f"Unclosed placeholder in {text!r}")
+    return end
+
+
+def _parse_placeholder(placeholder: str) -> tuple[str, str | None]:
+    if ":" in placeholder:
+        var, default = placeholder.split(":", 1)
+        return var, default
+    return placeholder, None
+
+
+def _substitute_placeholder(var: str, default: str | None) -> str:
+    if var in os.environ:
+        return os.environ[var]
+    if default is not None:
+        return default
+    raise ValueError(f"Missing environment variable {var} for placeholder in config")
+
+
 def _replace_placeholders(text: str) -> str:
-    result = ""
+    result: list[str] = []
     idx = 0
     while idx < len(text):
-        if text.startswith("${", idx):
-            end = text.find("}", idx)
-            if end == -1:
-                raise ValueError(f"Unclosed placeholder in {text!r}")
-            placeholder = text[idx + 2 : end]
-            if ":" in placeholder:
-                var, default = placeholder.split(":", 1)
-            else:
-                var, default = placeholder, None
-            if var in os.environ:
-                result += os.environ[var]
-            elif default is not None:
-                result += default
-            else:
-                raise ValueError(f"Missing environment variable {var} for placeholder in config")
-            idx = end + 1
-        else:
-            result += text[idx]
+        if not text.startswith("${", idx):
+            result.append(text[idx])
             idx += 1
-    return result
+            continue
+
+        end = _find_placeholder_end(text, idx)
+        placeholder = text[idx + 2 : end]
+        var, default = _parse_placeholder(placeholder)
+        result.append(_substitute_placeholder(var, default))
+        idx = end + 1
+    return "".join(result)
 
 
 class LocalPacker:
