@@ -484,109 +484,136 @@ class ShardReader:
         raise ValueError("Bigfile root unknown for this shard reader.")
 
 
+# Complexity reduced: split UID reading and version-specific entry parsing into helpers to flatten branching in parse_index.
+def _ensure_available(data: bytes, offset: int, needed: int, message: str) -> None:
+    if offset + needed > len(data):
+        raise ValueError(message)
+
+
+def _read_uid(data: bytes, offset: int) -> tuple[str, int]:
+    _ensure_available(data, offset, 2, "Truncated index while reading name length.")
+    name_len = struct.unpack_from("<H", data, offset)[0]
+    offset += 2
+
+    _ensure_available(data, offset, name_len, "Truncated index while reading UID.")
+    name_bytes = data[offset : offset + name_len]
+    offset += name_len
+    return name_bytes.decode("utf-8"), offset
+
+
+def _parse_legacy_entry(data: bytes, offset: int, uid: str, data_section_end: int) -> tuple[ShardFileEntry, int]:
+    _ensure_available(data, offset, 16 + 1 + 16, "Truncated index while reading entry metadata.")
+    file_offset, length = struct.unpack_from("<QQ", data, offset)
+    offset += 16
+    codec_byte = struct.unpack_from("<B", data, offset)[0]
+    offset += 1
+    compressed_size, uncompressed_size = struct.unpack_from("<QQ", data, offset)
+    offset += 16
+
+    if file_offset + length > data_section_end:
+        raise ValueError("Indexed file extends beyond data section.")
+
+    entry = ShardFileEntry(
+        uid=uid,
+        offset=file_offset,
+        length=length,
+        codec=_byte_to_codec(codec_byte),
+        compressed_size=compressed_size,
+        uncompressed_size=uncompressed_size,
+    )
+    return entry, offset
+
+
+def _parse_bigfile_entry(data: bytes, offset: int, uid: str) -> tuple[ShardFileEntry, int]:
+    _ensure_available(data, offset, 2, "Truncated bigfile entry while reading hash length.")
+    hash_len = struct.unpack_from("<H", data, offset)[0]
+    offset += 2
+
+    _ensure_available(data, offset, hash_len, "Truncated bigfile entry while reading hash.")
+    hash_bytes = data[offset : offset + hash_len]
+    offset += hash_len
+
+    _ensure_available(data, offset, 8 + 4, "Truncated bigfile entry while reading sizes.")
+    (bigfile_size,) = struct.unpack_from("<Q", data, offset)
+    offset += 8
+    meta_len = struct.unpack_from("<I", data, offset)[0]
+    offset += 4
+
+    _ensure_available(data, offset, meta_len, "Truncated bigfile entry while reading metadata.")
+    meta = _deserialize_meta(data[offset : offset + meta_len])
+    offset += meta_len
+
+    entry = ShardFileEntry(
+        uid=uid,
+        offset=None,
+        length=None,
+        codec=None,
+        compressed_size=None,
+        uncompressed_size=bigfile_size,
+        is_bigfile=True,
+        bigfile_hash=hash_bytes.decode("utf-8"),
+        bigfile_size=bigfile_size,
+        meta=meta,
+    )
+    return entry, offset
+
+
+def _parse_inline_entry(
+    data: bytes, offset: int, uid: str, data_section_end: int
+) -> tuple[ShardFileEntry, int]:
+    _ensure_available(data, offset, 16 + 1 + 16 + 4, "Truncated index while reading entry metadata.")
+    file_offset, length = struct.unpack_from("<QQ", data, offset)
+    offset += 16
+    codec_byte = struct.unpack_from("<B", data, offset)[0]
+    offset += 1
+    compressed_size, uncompressed_size = struct.unpack_from("<QQ", data, offset)
+    offset += 16
+    meta_len = struct.unpack_from("<I", data, offset)[0]
+    offset += 4
+
+    _ensure_available(data, offset, meta_len, "Truncated entry while reading metadata.")
+    meta = _deserialize_meta(data[offset : offset + meta_len])
+    offset += meta_len
+
+    if file_offset + length > data_section_end:
+        raise ValueError("Indexed file extends beyond data section.")
+
+    entry = ShardFileEntry(
+        uid=uid,
+        offset=file_offset,
+        length=length,
+        codec=_byte_to_codec(codec_byte),
+        compressed_size=compressed_size,
+        uncompressed_size=uncompressed_size,
+        meta=meta,
+    )
+    return entry, offset
+
+
+def _parse_v2_entry(data: bytes, offset: int, uid: str, data_section_end: int) -> tuple[ShardFileEntry, int]:
+    _ensure_available(data, offset, 1, "Truncated index while reading flags.")
+    flags = struct.unpack_from("<B", data, offset)[0]
+    offset += 1
+
+    if flags & BIGFILE_FLAG:
+        return _parse_bigfile_entry(data, offset, uid)
+    return _parse_inline_entry(data, offset, uid, data_section_end)
+
+
 def parse_index(data: bytes, data_section_end: int, *, version: int) -> Dict[str, ShardFileEntry]:
-    if len(data) < 4:
-        raise ValueError("Index too small to contain entry count.")
+    _ensure_available(data, 0, 4, "Index too small to contain entry count.")
 
     entry_count = struct.unpack_from("<I", data, 0)[0]
     offset = 4
     entries: Dict[str, ShardFileEntry] = {}
 
     for _ in range(entry_count):
-        if offset + 2 > len(data):
-            raise ValueError("Truncated index while reading name length.")
-        name_len = struct.unpack_from("<H", data, offset)[0]
-        offset += 2
-
-        if offset + name_len > len(data):
-            raise ValueError("Truncated index while reading UID.")
-        name_bytes = data[offset : offset + name_len]
-        offset += name_len
-        uid = name_bytes.decode("utf-8")
-
+        uid, offset = _read_uid(data, offset)
         if version == LEGACY_VERSION:
-            if offset + 16 + 1 + 16 > len(data):
-                raise ValueError("Truncated index while reading entry metadata.")
-            file_offset, length = struct.unpack_from("<QQ", data, offset)
-            offset += 16
-            codec_byte = struct.unpack_from("<B", data, offset)[0]
-            offset += 1
-            compressed_size, uncompressed_size = struct.unpack_from("<QQ", data, offset)
-            offset += 16
-            if file_offset + length > data_section_end:
-                raise ValueError("Indexed file extends beyond data section.")
-            entries[uid] = ShardFileEntry(
-                uid=uid,
-                offset=file_offset,
-                length=length,
-                codec=_byte_to_codec(codec_byte),
-                compressed_size=compressed_size,
-                uncompressed_size=uncompressed_size,
-            )
-            continue
-
-        if offset + 1 > len(data):
-            raise ValueError("Truncated index while reading flags.")
-        flags = struct.unpack_from("<B", data, offset)[0]
-        offset += 1
-        if flags & BIGFILE_FLAG:
-            if offset + 2 > len(data):
-                raise ValueError("Truncated bigfile entry while reading hash length.")
-            hash_len = struct.unpack_from("<H", data, offset)[0]
-            offset += 2
-            if offset + hash_len > len(data):
-                raise ValueError("Truncated bigfile entry while reading hash.")
-            hash_bytes = data[offset : offset + hash_len]
-            offset += hash_len
-            if offset + 8 + 4 > len(data):
-                raise ValueError("Truncated bigfile entry while reading sizes.")
-            (bigfile_size,) = struct.unpack_from("<Q", data, offset)
-            offset += 8
-            meta_len = struct.unpack_from("<I", data, offset)[0]
-            offset += 4
-            if offset + meta_len > len(data):
-                raise ValueError("Truncated bigfile entry while reading metadata.")
-            meta = _deserialize_meta(data[offset : offset + meta_len])
-            offset += meta_len
-            entries[uid] = ShardFileEntry(
-                uid=uid,
-                offset=None,
-                length=None,
-                codec=None,
-                compressed_size=None,
-                uncompressed_size=bigfile_size,
-                is_bigfile=True,
-                bigfile_hash=hash_bytes.decode("utf-8"),
-                bigfile_size=bigfile_size,
-                meta=meta,
-            )
+            entry, offset = _parse_legacy_entry(data, offset, uid, data_section_end)
         else:
-            if offset + 16 + 1 + 16 + 4 > len(data):
-                raise ValueError("Truncated index while reading entry metadata.")
-            file_offset, length = struct.unpack_from("<QQ", data, offset)
-            offset += 16
-            codec_byte = struct.unpack_from("<B", data, offset)[0]
-            offset += 1
-            compressed_size, uncompressed_size = struct.unpack_from("<QQ", data, offset)
-            offset += 16
-            meta_len = struct.unpack_from("<I", data, offset)[0]
-            offset += 4
-            if offset + meta_len > len(data):
-                raise ValueError("Truncated entry while reading metadata.")
-            meta = _deserialize_meta(data[offset : offset + meta_len])
-            offset += meta_len
-            if file_offset + length > data_section_end:
-                raise ValueError("Indexed file extends beyond data section.")
-
-            entries[uid] = ShardFileEntry(
-                uid=uid,
-                offset=file_offset,
-                length=length,
-                codec=_byte_to_codec(codec_byte),
-                compressed_size=compressed_size,
-                uncompressed_size=uncompressed_size,
-                meta=meta,
-            )
+            entry, offset = _parse_v2_entry(data, offset, uid, data_section_end)
+        entries[uid] = entry
 
     return entries
 
