@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Protocol
@@ -35,6 +35,15 @@ class MigrationResult:
     total_size_bytes: int
     duration_seconds: float
     errors: List[str]
+
+
+@dataclass
+class _PackOutcome:
+    files_migrated: int = 0
+    files_failed: int = 0
+    shards_created: int = 0
+    total_size_bytes: int = 0
+    migrated_uids: List[str] = field(default_factory=list)
 
 
 class PackerInterface(Protocol):
@@ -102,36 +111,44 @@ class MigrationOrchestrator:
     def _execute_cycle(self, cutoff: datetime) -> MigrationResult:
         start = time.monotonic()
         errors: List[str] = []
-        files_processed = 0
-        files_migrated = 0
-        files_failed = 0
-        shards_created = 0
-        total_size_bytes = 0
-        migrated_uids: List[str] = []
-        valid_files: List[FileToPack] = []
-        file_paths_for_cleanup: List[Path] = []
 
         records = self._db.fetch_files_to_archive(cutoff, limit=self._batch_size)
 
         files_processed = len(records)
         logger.info("Fetched %d file(s) to archive (cutoff=%s)", files_processed, cutoff.isoformat())
         if not records:
-            duration = time.monotonic() - start
-            return MigrationResult(
-                files_processed=0,
-                files_migrated=0,
-                files_failed=0,
-                shards_created=0,
-                total_size_bytes=0,
-                duration_seconds=duration,
-                errors=errors,
-            )
+            return self._empty_cycle_result(start, errors)
 
-        # Validation
+        valid_files, file_paths_for_cleanup, validation_failures = self._validate_records(records, errors)
+        pack_outcome = self._pack_valid_files(valid_files, errors)
+        files_failed = validation_failures + pack_outcome.files_failed
+
+        self._mark_as_archived(pack_outcome.migrated_uids, errors)
+        self._cleanup_sources(file_paths_for_cleanup, errors)
+
+        duration = time.monotonic() - start
+        return MigrationResult(
+            files_processed=files_processed,
+            files_migrated=pack_outcome.files_migrated,
+            files_failed=files_failed,
+            shards_created=pack_outcome.shards_created,
+            total_size_bytes=pack_outcome.total_size_bytes,
+            duration_seconds=duration,
+            errors=errors,
+        )
+
+    # Complexity reduced: validation, packing, marking, cleanup, and empty-result handling are split into helpers.
+    def _validate_records(
+        self, records: List[SourceFileRecord], errors: List[str]
+    ) -> tuple[List[FileToPack], List[Path], int]:
+        valid_files: List[FileToPack] = []
+        file_paths_for_cleanup: List[Path] = []
+        validation_failures = 0
+
         for record in records:
             validation_error = self._validate_record(record)
             if validation_error:
-                files_failed += 1
+                validation_failures += 1
                 errors.append(validation_error)
                 logger.warning(validation_error)
                 continue
@@ -148,49 +165,58 @@ class MigrationOrchestrator:
                 )
             )
 
-        # Packing per file to isolate failures
-        for file in valid_files:
+        return valid_files, file_paths_for_cleanup, validation_failures
+
+    def _pack_valid_files(self, files: List[FileToPack], errors: List[str]) -> _PackOutcome:
+        outcome = _PackOutcome()
+
+        for file in files:
             try:
                 result = self._packer.pack_files([file])
-                files_migrated += 1
-                total_size_bytes += file.size_bytes
-                shards_created += len(result.shards)
-                migrated_uids.append(file.uid)
+                outcome.files_migrated += 1
+                outcome.total_size_bytes += file.size_bytes
+                outcome.shards_created += len(result.shards)
+                outcome.migrated_uids.append(file.uid)
                 logger.info("Packed file %s into %d shard(s)", file.uid, len(result.shards))
             except Exception as exc:
-                files_failed += 1
+                outcome.files_failed += 1
                 msg = f"Packing failed for {file.uid}: {exc}"
                 errors.append(msg)
                 logger.error(msg)
 
-        # Mark as archived
-        if migrated_uids:
+        return outcome
+
+    def _mark_as_archived(self, migrated_uids: List[str], errors: List[str]) -> None:
+        if not migrated_uids:
+            return
+        try:
+            updated = self._db.mark_as_archived(migrated_uids)
+            logger.info("Marked %d/%d files as archived", updated, len(migrated_uids))
+        except Exception as exc:  # pragma: no cover - depends on DB failure
+            msg = f"Failed to mark files as archived: {exc}"
+            errors.append(msg)
+            logger.error(msg)
+
+    def _cleanup_sources(self, file_paths_for_cleanup: List[Path], errors: List[str]) -> None:
+        if not self._delete_source_files:
+            return
+        for path in file_paths_for_cleanup:
             try:
-                updated = self._db.mark_as_archived(migrated_uids)
-                logger.info("Marked %d/%d files as archived", updated, len(migrated_uids))
-            except Exception as exc:  # pragma: no cover - depends on DB failure
-                msg = f"Failed to mark files as archived: {exc}"
+                path.unlink(missing_ok=True)
+                logger.info("Deleted source file %s", path)
+            except Exception as exc:
+                msg = f"Failed to delete {path}: {exc}"
                 errors.append(msg)
                 logger.error(msg)
 
-        # Cleanup
-        if self._delete_source_files:
-            for path in file_paths_for_cleanup:
-                try:
-                    path.unlink(missing_ok=True)
-                    logger.info("Deleted source file %s", path)
-                except Exception as exc:
-                    msg = f"Failed to delete {path}: {exc}"
-                    errors.append(msg)
-                    logger.error(msg)
-
+    def _empty_cycle_result(self, start: float, errors: List[str]) -> MigrationResult:
         duration = time.monotonic() - start
         return MigrationResult(
-            files_processed=files_processed,
-            files_migrated=files_migrated,
-            files_failed=files_failed,
-            shards_created=shards_created,
-            total_size_bytes=total_size_bytes,
+            files_processed=0,
+            files_migrated=0,
+            files_failed=0,
+            shards_created=0,
+            total_size_bytes=0,
             duration_seconds=duration,
             errors=errors,
         )
