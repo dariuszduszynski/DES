@@ -20,6 +20,7 @@ from .db_connector import SourceDatabase
 from .migration_orchestrator import MigrationOrchestrator, MigrationResult
 from .packer import PackerResult, pack_files_to_directory
 from .packer_planner import FileToPack, PlannerConfig
+from .config import S3SourceConfig
 
 logger = logging.getLogger("des_migrate")
 
@@ -113,12 +114,24 @@ def _replace_placeholders(text: str) -> str:
 class LocalPacker:
     """Simple packer using local filesystem output."""
 
-    def __init__(self, output_dir: Path, max_shard_size: int = 1_000_000_000, n_bits: int = 8) -> None:
+    def __init__(
+        self,
+        output_dir: Path,
+        max_shard_size: int = 1_000_000_000,
+        n_bits: int = 8,
+        s3_source_config: S3SourceConfig | None = None,
+    ) -> None:
         self._output_dir = output_dir
         self._config = PlannerConfig(max_shard_size_bytes=max_shard_size, n_bits=n_bits)
+        self._s3_source_config = s3_source_config
 
     def pack_files(self, files: list[FileToPack]) -> PackerResult:
-        return pack_files_to_directory(files, self._output_dir, self._config)
+        return pack_files_to_directory(
+            files,
+            self._output_dir,
+            self._config,
+            s3_source_config=self._s3_source_config,
+        )
 
 
 def _build_db(cfg: Dict[str, Any]) -> SourceDatabase:
@@ -140,7 +153,9 @@ def _build_packer(cfg: Dict[str, Any]) -> LocalPacker:
     output_dir.mkdir(parents=True, exist_ok=True)
     max_shard_size = int(packer_cfg.get("max_shard_size", 1_000_000_000))
     n_bits = int(packer_cfg.get("n_bits", 8))
-    return LocalPacker(output_dir, max_shard_size=max_shard_size, n_bits=n_bits)
+    s3_source_raw = packer_cfg.get("s3_source", {})
+    s3_source_config = S3SourceConfig.from_mapping(s3_source_raw) if s3_source_raw else None
+    return LocalPacker(output_dir, max_shard_size=max_shard_size, n_bits=n_bits, s3_source_config=s3_source_config)
 
 
 def _build_orchestrator(cfg: Dict[str, Any]) -> MigrationOrchestrator:

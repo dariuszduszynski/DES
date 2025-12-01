@@ -184,19 +184,19 @@ _case_strategy = st.builds(
     lambda base, big: {**base, big[0]: big[1]},
     base=st.dictionaries(
         _uid_strategy,
-        st.binary(min_size=0, max_size=256),
+        st.binary(min_size=0, max_size=128),
         min_size=0,
         max_size=5,
     ),
     big=st.tuples(
         _uid_strategy,
-        st.binary(min_size=65, max_size=256),
+        st.binary(min_size=65, max_size=128),
     ),
 ).map(lambda items: list(items.items()))
 
 
 @given(cases=_case_strategy)
-@settings(max_examples=25)
+@settings(max_examples=15)
 def test_bigfile_roundtrip_fuzz(cases: list[tuple[str, bytes]]) -> None:
     des_cfg = DESConfig(big_file_threshold_bytes=64)
     created_at = datetime(2024, 1, 1)

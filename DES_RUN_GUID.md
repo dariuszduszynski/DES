@@ -105,8 +105,8 @@
   - Zalecane 4+ cores dla kompresji
 
 ### Dostęp do plików
-- Pliki muszą być dostępne lokalnie (filesystem path)
-- Obsługiwane: lokalne dyski, NFS, CIFS/SMB mounts
+- Pliki mogą być dostępne lokalnie **lub** jako S3 URI (`s3://bucket/key`)
+- Obsługiwane: lokalne dyski, NFS, CIFS/SMB mounts, S3/MinIO (przez `S3FileReader`)
 
 ---
 
@@ -190,7 +190,7 @@ CREATE TABLE files (
     -- Timestamp utworzenia (wymagane)
     created_at TIMESTAMP NOT NULL,
     
-    -- Ścieżka do pliku w filesystemie (wymagane)
+    -- Ścieżka do pliku w filesystemie LUB S3 URI (s3://bucket/key) (wymagane)
     file_location VARCHAR(1024) NOT NULL,
     
     -- Rozmiar w bajtach (opcjonalne ale ZALECANE)
@@ -415,6 +415,14 @@ packer:
       - ".mp4"
       - ".zip"
       - ".gz"
+
+  # Źródło plików S3 (opcjonalne; fallback do lokalnych ścieżek gdy disabled)
+  s3_source:
+    enabled: true
+    region_name: "us-east-1"       # opcjonalne
+    endpoint_url: null             # opcjonalne (MinIO/LocalStack)
+    max_retries: 3
+    retry_delay_seconds: 2
 
 # ============================================
 # SEKCJA: LOGGING (opcjonalne)
@@ -823,9 +831,12 @@ DES exportuje metryki w formacie Prometheus na porcie 9090 (domyślnie).
 des_migration_cycles_total{status="success|failure"}  # Ilość cykli migracji
 des_migration_files_total                             # Łączna liczba przetworzonych plików
 des_migration_bytes_total                             # Łączna ilość bajtów
+des_s3_source_reads_total{status="success|error"}     # Liczba odczytów z S3 jako źródła
+des_s3_source_bytes_downloaded                        # Łącznie pobrane bajty z S3
 
 # Histogram (rozkład czasu trwania)
 des_migration_duration_seconds{quantile="0.5|0.9|0.99"}
+des_s3_source_read_seconds{status="success|error"}
 
 # Gauges (aktualna wartość)
 des_migration_pending_files                           # Pliki czekające na migrację
@@ -1592,6 +1603,20 @@ SELECT file_location FROM files LIMIT 5;
 -- /mnt/storage-b/file2.dat
 -- /mnt/storage-c/file3.dat
 ```
+
+### Q: Czy mogę używać S3 URI jako `file_location`?
+
+**A:** TAK. Ustaw w konfiguracji:
+
+```yaml
+packer:
+  s3_source:
+    enabled: true
+    region_name: "us-east-1"   # opcjonalne
+    endpoint_url: null         # opcjonalne (MinIO/LocalStack)
+```
+
+`file_location` może wtedy wskazywać `s3://bucket/key`. Brak włączonej sekcji `s3_source` spowoduje błąd przy napotkaniu URI S3.
 
 ### Q: Czy DES wspiera Windows paths?
 

@@ -100,6 +100,7 @@ def pack_files_to_s3(
     delete_local: bool = True,
     client: S3WriteClientProtocol | None = None,
     des_config: DESConfig | None = None,
+    s3_source_config=None,
 ) -> S3PackerResult:
     """Plan, write, and upload DES shard files to S3.
 
@@ -114,7 +115,9 @@ def pack_files_to_s3(
     des_cfg = des_config or DESConfig.from_env()
 
     def _run(directory: Path) -> S3PackerResult:
-        packer_result = pack_files_to_directory(files_list, directory, planner_config, des_config=des_cfg)
+        packer_result = pack_files_to_directory(
+            files_list, directory, planner_config, des_config=des_cfg, s3_source_config=s3_source_config
+        )
         s3_client = _build_s3_client(s3_config, client)
         prefix = normalize_prefix(s3_config.prefix)
 

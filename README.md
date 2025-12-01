@@ -10,6 +10,7 @@ Pack huge numbers of small files into larger, S3-optimized shard objects. DES gi
 - HTTP retriever with backends: `local`, `s3`, `multi_s3`; Prometheus metrics at `/metrics`.
 - In-memory index cache to reduce repeated S3 calls.
 - Packer CLI (`des-pack`), Docker images, docker-compose, and K8s job manifests.
+- Source reads from local filesystem **or S3 URIs** (`s3://bucket/key`) with retry/backoff via `S3FileReader`.
 
 ## BigFiles support
 - Payloads larger than `DES_BIG_FILE_THRESHOLD_BYTES` (default 10 MiB) are written outside the `.des` body under a sibling `_bigFiles/` directory; the shard stores only metadata (`is_bigfile`, `bigfile_hash`, `bigfile_size`, `meta`).
@@ -164,6 +165,9 @@ Prometheus metrics exposed at `/metrics`:
 - `des_retrievals_total{backend,status}`
 - `des_retrieval_seconds{backend}`
 - `des_s3_range_calls_total{backend,type}`
+- `des_s3_source_reads_total{status}`
+- `des_s3_source_read_seconds{status}`
+- `des_s3_source_bytes_downloaded`
 
 Example scrape config:
 ```yaml
@@ -190,6 +194,7 @@ des-stats --db-url "postgresql+psycopg://user:pass@host/db" --table source_files
 
 Migration orchestration (Story 4):
 - Configure SourceDatabase, packer, and run MigrationOrchestrator.run_migration_cycle() to fetch → validate → pack → mark → optional cleanup.
+- Source paths can be local or `s3://bucket/key` when `packer.s3_source.enabled=true` (see docs/S3_SOURCE_GUIDE.md).
 
 Migration from database (Story 5):
 ```bash

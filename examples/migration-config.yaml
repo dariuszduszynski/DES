@@ -16,3 +16,9 @@ packer:
   output_dir: ./des_output
   max_shard_size: 1000000000
   n_bits: 8
+  s3_source:
+    enabled: false
+    region_name: "us-east-1"
+    endpoint_url: null
+    max_retries: 3
+    retry_delay_seconds: 2

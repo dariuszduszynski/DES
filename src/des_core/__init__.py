@@ -9,7 +9,7 @@ from .compression import (
     balanced_zstd_config,
     speed_lz4_config,
 )
-from .config import DESConfig
+from .config import DESConfig, S3SourceConfig
 from .database_source import DatabaseSourceProvider, SourceDatabaseConfig, SourceRecord
 from .db_archive_marker import advance_archive_marker
 from .db_connector import SourceDatabase, SourceFileRecord
@@ -62,6 +62,7 @@ from .s3_retriever import (
     S3ShardStorage,
     normalize_prefix,
 )
+from .s3_file_reader import S3FileReader, is_s3_uri
 from .shard_io import (
     ShardFileEntry,
     ShardIndex,
@@ -91,6 +92,7 @@ __all__ = [
     "MigrationOrchestrator",
     "MigrationResult",
     "DESConfig",
+    "S3SourceConfig",
     "LocalRetrieverConfig",
     "LocalShardRetriever",
     "make_local_config",
@@ -101,6 +103,8 @@ __all__ = [
     "S3PackerResult",
     "UploadedShard",
     "pack_files_to_s3",
+    "S3FileReader",
+    "is_s3_uri",
     "CompressionCodec",
     "CompressionConfig",
     "CompressionProfile",
