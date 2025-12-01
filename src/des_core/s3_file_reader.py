@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import time
 from typing import Protocol, Tuple
 from urllib.parse import urlparse

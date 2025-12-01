@@ -4,10 +4,10 @@ from datetime import datetime, timezone
 from botocore.exceptions import ClientError
 from botocore.response import StreamingBody
 
+from des_core import s3_file_reader
 from des_core.config import S3SourceConfig
 from des_core.packer import pack_files_to_directory
 from des_core.packer_planner import FileToPack, PlannerConfig
-from des_core import s3_file_reader
 from des_core.shard_io import ShardReader
 
 

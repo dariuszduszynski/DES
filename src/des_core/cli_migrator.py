@@ -16,11 +16,11 @@ try:
 except ImportError:  # pragma: no cover
     yaml = None  # type: ignore[assignment,misc]
 
+from .config import S3SourceConfig
 from .db_connector import SourceDatabase
 from .migration_orchestrator import MigrationOrchestrator, MigrationResult
 from .packer import PackerResult, pack_files_to_directory
 from .packer_planner import FileToPack, PlannerConfig
-from .config import S3SourceConfig
 
 logger = logging.getLogger("des_migrate")
 

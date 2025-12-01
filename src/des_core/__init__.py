@@ -51,6 +51,7 @@ from .routing import (
     normalize_uid,
     shard_index_to_hex,
 )
+from .s3_file_reader import S3FileReader, is_s3_uri
 from .s3_packer import (
     S3PackerResult,
     UploadedShard,
@@ -62,7 +63,6 @@ from .s3_retriever import (
     S3ShardStorage,
     normalize_prefix,
 )
-from .s3_file_reader import S3FileReader, is_s3_uri
 from .shard_io import (
     ShardFileEntry,
     ShardIndex,

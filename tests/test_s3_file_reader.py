@@ -1,7 +1,7 @@
 import io
 
 import pytest
-from botocore.exceptions import ClientError, EndpointConnectionError
+from botocore.exceptions import EndpointConnectionError
 from botocore.response import StreamingBody
 from botocore.stub import Stubber
 
