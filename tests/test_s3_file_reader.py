@@ -34,7 +34,7 @@ def test_s3_file_reader_retries_on_transient_error(monkeypatch):
         def get_object(self, Bucket, Key):
             calls["count"] += 1
             if calls["count"] == 1:
-                raise EndpointConnectionError(endpoint_url="http://example.com")
+                raise EndpointConnectionError(endpoint_url="https://example.com")
             return {"Body": StreamingBody(io.BytesIO(b"ok"), len(b"ok"))}
 
     reader = S3FileReader(client=FakeClient(), max_retries=1, retry_delay_seconds=0.01)
