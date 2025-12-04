@@ -43,6 +43,20 @@ class PlannerConfig:
     max_shard_size_bytes: int = 1_000_000_000
     n_bits: int = 8
 
+@dataclass(frozen=True)
+class PackerConfig:
+    """Higher-level configuration for packer tooling that includes output path.
+
+    Provides a helper to derive the pure planning config used by the planner.
+    """
+
+    output_dir: Path | str
+    n_bits: int = 8
+    max_shard_size: int = 1_000_000_000
+
+    def to_planner_config(self) -> PlannerConfig:
+        return PlannerConfig(max_shard_size_bytes=self.max_shard_size, n_bits=self.n_bits)
+
 
 @dataclass
 class PlannedShard:

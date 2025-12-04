@@ -70,6 +70,10 @@ files = ["src", "tests"]
 module = ["zstandard", "lz4", "lz4.frame", "prometheus_client"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["psycopg", "yaml"]
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 130
 target-version = "py312"

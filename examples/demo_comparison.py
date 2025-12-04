@@ -11,18 +11,18 @@ Usage:
 
 import argparse
 import asyncio
+import sqlite3
+import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-import sqlite3
-import tempfile
-from typing import List
+
 
 # Performance tracking
 class PerformanceTracker:
     def __init__(self, name: str):
         self.name = name
-        self.start_time = None
+        self.start_time: float | None = None
         self.db_operations = {"SELECT": 0, "UPDATE": 0}
         self.files_processed = 0
         
@@ -34,6 +34,7 @@ class PerformanceTracker:
         return self
         
     def __exit__(self, *args):
+        assert self.start_time is not None
         duration = time.monotonic() - self.start_time
         print(f"\n📊 {self.name} Results:")
         print(f"  Duration: {duration:.2f}s")

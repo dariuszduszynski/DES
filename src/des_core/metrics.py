@@ -38,6 +38,16 @@ DES_MIGRATION_BYTES_TOTAL = Counter(
     "Total number of bytes migrated by DES",
 )
 
+DES_MIGRATION_FILES_FAILED = Counter(
+    "des_migration_files_failed",
+    "Number of files that failed during DES migration",
+)
+
+DES_MIGRATION_SHARDS_TOTAL = Counter(
+    "des_migration_shards_total",
+    "Total number of shards produced by DES migration",
+)
+
 DES_MIGRATION_DURATION_SECONDS = Histogram(
     "des_migration_duration_seconds",
     "Duration of migration cycles in seconds",
@@ -81,6 +91,8 @@ __all__ = [
     "DES_MIGRATION_CYCLES_TOTAL",
     "DES_MIGRATION_FILES_TOTAL",
     "DES_MIGRATION_BYTES_TOTAL",
+    "DES_MIGRATION_FILES_FAILED",
+    "DES_MIGRATION_SHARDS_TOTAL",
     "DES_MIGRATION_DURATION_SECONDS",
     "DES_MIGRATION_PENDING_FILES",
     "DES_MIGRATION_BATCH_SIZE",

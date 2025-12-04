@@ -20,19 +20,17 @@ from pathlib import Path
 from typing import List, Optional
 
 from des_core.archive_config import ArchiveConfigRepository, ArchiveWindow
-from des_core.database_source import DatabaseSourceProvider, SourceDatabaseConfig, SourceRecord
-from des_core.file_reader import FileReader, LocalFileReader, S3FileReader
+from des_core.database_source import DatabaseSourceProvider, SourceDatabaseConfig
 from des_core.metrics import (
     DES_MIGRATION_BYTES_TOTAL,
     DES_MIGRATION_CYCLES_TOTAL,
     DES_MIGRATION_DURATION_SECONDS,
     DES_MIGRATION_FILES_FAILED,
-    DES_MIGRATION_FILES_PENDING,
     DES_MIGRATION_FILES_TOTAL,
     DES_MIGRATION_SHARDS_TOTAL,
 )
-from des_core.packer import pack_files
 from des_core.packer_planner import PackerConfig
+from des_core.s3_file_reader import FileReaderProtocol, LocalFileReader, S3FileReader
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +69,7 @@ class WatermarkMigrationOrchestrator:
         config_connection,  # DB-API connection for des_archive_config (can be same)
         source_config: SourceDatabaseConfig,
         packer_config: PackerConfig,
-        file_reader: Optional[FileReader] = None,
+        file_reader: Optional[FileReaderProtocol] = None,
         delete_source_files: bool = False,
         default_archived_until: Optional[datetime] = None,
     ):

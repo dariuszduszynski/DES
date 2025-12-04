@@ -12,16 +12,15 @@ import asyncio
 import logging
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 import psycopg
 import yaml
-
 from watermark_orchestrator import WatermarkMigrationOrchestrator
+
+from des_core.archive_config import ArchiveConfigRepository
 from des_core.database_source import SourceDatabaseConfig
 from des_core.packer_planner import PackerConfig
-from des_core.archive_config import ArchiveConfigRepository
 
 logging.basicConfig(
     level=logging.INFO,
@@ -234,11 +233,9 @@ async def adjust_watermark(config_path: str, set_date: Optional[str] = None, day
     
     # Get current watermark
     cursor.execute("SELECT archived_until, lag_days FROM des_archive_config WHERE id = 1")
-    row = cursor.fetchone()
-    current_watermark = row[0]
-    lag_days = row[1]
+    current_watermark, _lag_days = cursor.fetchone()
     
-    print(f"\n⚠️  Watermark Adjustment")
+    print("\n⚠️  Watermark Adjustment")
     print(f"Current watermark: {current_watermark}")
     
     if set_date:
