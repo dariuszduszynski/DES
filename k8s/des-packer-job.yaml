@@ -35,8 +35,10 @@ spec:
           resources:
             requests:
               cpu: "500m"
+              memory: "1Gi"
               ephemeral-storage: "1Gi"
             limits:
+              memory: "2Gi"
               ephemeral-storage: "2Gi"
       volumes:
         - name: des-input
