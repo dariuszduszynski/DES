@@ -11,7 +11,6 @@ import argparse
 import asyncio
 import logging
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -125,7 +124,7 @@ async def run_migration(config_path: str, mode: str = "single", interval: int = 
                 
                 # Sleep until next cycle
                 logger.info("Sleeping for %d seconds...", interval)
-                time.sleep(interval)
+                await asyncio.sleep(interval)
                 
             except KeyboardInterrupt:
                 logger.info("Received interrupt, shutting down...")
@@ -133,7 +132,7 @@ async def run_migration(config_path: str, mode: str = "single", interval: int = 
             except Exception as e:
                 logger.error("Cycle failed: %s", e, exc_info=True)
                 logger.info("Retrying in %d seconds...", interval)
-                time.sleep(interval)
+                await asyncio.sleep(interval)
     
     # Cleanup
     conn.close()
