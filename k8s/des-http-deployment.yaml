@@ -61,6 +61,12 @@ spec:
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
+          resources:
+            requests:
+              cpu: "500m"
+              ephemeral-storage: "1Gi"
+            limits:
+              ephemeral-storage: "2Gi"
       volumes:
         - name: des-data
           emptyDir: {} # replace with PersistentVolumeClaim in production

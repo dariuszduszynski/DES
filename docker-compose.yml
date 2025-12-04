@@ -24,6 +24,10 @@ services:
       - ./example_data/des:/data/des:ro
       # - ./config/zones.yaml:/config/zones.yaml:ro
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
 
   des-packer:
     build:
@@ -43,3 +47,7 @@ services:
       - ./example_data/manifests:/data/manifests:ro
       - ./example_data/output:/data/output
     restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 1g

@@ -35,6 +35,12 @@ spec:
                   mountPath: /data/manifests
                 - name: des-output
                   mountPath: /data/output
+              resources:
+                requests:
+                  cpu: "500m"
+                  ephemeral-storage: "1Gi"
+                limits:
+                  ephemeral-storage: "2Gi"
           volumes:
             - name: des-input
               persistentVolumeClaim:
