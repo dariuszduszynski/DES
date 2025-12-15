@@ -45,6 +45,7 @@ dev = [
   "pytest-mock>=3.14.0",
   "types-PyYAML",
   "hypothesis>=6.112.0",
+  "moto[s3]>=5.0.0",
 ]
 
 [project.scripts]

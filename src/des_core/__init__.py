@@ -13,6 +13,7 @@ from .config import DESConfig, S3SourceConfig
 from .database_source import DatabaseSourceProvider, SourceDatabaseConfig, SourceRecord
 from .db_archive_marker import advance_archive_marker
 from .db_connector import SourceDatabase, SourceFileRecord
+from .ext_retention import ExtendedRetentionManager
 from .http_retriever import (
     HttpRetrieverSettings,
     create_app,
@@ -114,6 +115,7 @@ __all__ = [
     "MultiS3ShardRetriever",
     "S3ZoneConfig",
     "S3ZoneRange",
+    "ExtendedRetentionManager",
     "HttpRetrieverSettings",
     "create_app",
     "normalize_uid",

@@ -22,6 +22,21 @@ DES_S3_RANGE_CALLS_TOTAL = Counter(
     ["backend", "type"],
 )
 
+ext_retention_moves_total = Counter(
+    "des_ext_retention_moves_total",
+    "Total files moved to extended retention",
+)
+
+ext_retention_updates_total = Counter(
+    "des_ext_retention_updates_total",
+    "Total retention policy updates",
+)
+
+ext_retention_files = Gauge(
+    "des_ext_retention_files_total",
+    "Current number of files in extended retention",
+)
+
 DES_MIGRATION_CYCLES_TOTAL = Counter(
     "des_migration_cycles_total",
     "Number of migration cycles executed",
@@ -98,4 +113,7 @@ __all__ = [
     "DES_MIGRATION_BATCH_SIZE",
     "start_http_server",
     "CONTENT_TYPE_LATEST",
+    "ext_retention_moves_total",
+    "ext_retention_updates_total",
+    "ext_retention_files",
 ]

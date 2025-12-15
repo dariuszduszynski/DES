@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional, Protocol, Tuple, cast
 
 import boto3
+from botocore.exceptions import ClientError
 from botocore.response import StreamingBody
 
 from .bigfiles import build_bigfile_key
@@ -40,6 +41,8 @@ class S3ReadClientProtocol(Protocol):
     def list_objects_v2(self, Bucket: str, Prefix: str) -> Any: ...
 
     def get_object(self, Bucket: str, Key: str, Range: str | None = None) -> Any: ...
+
+    def head_object(self, Bucket: str, Key: str) -> Any: ...
 
 
 class S3WriteClientProtocol(Protocol):
@@ -135,6 +138,7 @@ class S3ShardRetriever:
         *,
         index_cache: Cache[IndexCacheKey, CachedIndex] | None = None,
         config: DESConfig | None = None,
+        ext_retention_prefix: str | None = "_ext_retention",
     ) -> None:
         self._s3: S3ShardStorage
         if isinstance(s3_storage, S3Config):
@@ -144,9 +148,14 @@ class S3ShardRetriever:
         self._n_bits = n_bits
         self._index_cache = index_cache or LRUCache[IndexCacheKey, CachedIndex](LRUCacheConfig(max_size=1024))
         self._config = config or DESConfig.from_env()
+        self._ext_retention_prefix = ext_retention_prefix.strip("/") if ext_retention_prefix else ""
 
     def has_file(self, uid: str | int, created_at: datetime) -> bool:
         normalized_uid = normalize_uid(uid)
+        normalized_created_at = self._normalize_timestamp(created_at)
+        if self._ext_retention_exists(normalized_uid, normalized_created_at):
+            return True
+
         date_dir, shard_hex = self._resolve_key_components(normalized_uid, created_at)
 
         for key in self._s3.list_candidate_keys(date_dir, shard_hex):
@@ -170,6 +179,10 @@ class S3ShardRetriever:
 
     def _get_file_impl(self, uid: str | int, created_at: datetime) -> bytes:
         normalized_uid = normalize_uid(uid)
+        normalized_created_at = self._normalize_timestamp(created_at)
+        ext_data = self._get_from_ext_retention(normalized_uid, normalized_created_at)
+        if ext_data is not None:
+            return ext_data
         date_dir, shard_hex = self._resolve_key_components(normalized_uid, created_at)
 
         for key in self._s3.list_candidate_keys(date_dir, shard_hex):
@@ -216,6 +229,54 @@ class S3ShardRetriever:
         if entry.bigfile_size is not None and len(data) != entry.bigfile_size:
             raise ValueError(f"Bigfile size mismatch for UID {entry.uid}")
         return data
+
+    def _ext_retention_exists(self, uid: str, created_at: datetime) -> bool:
+        if not self._ext_retention_prefix:
+            return False
+        key = self._build_ext_retention_key(uid, created_at)
+        client = getattr(self._s3, "_client", None)
+        if client is None or not hasattr(client, "head_object"):
+            return False
+        try:
+            client.head_object(Bucket=self._s3._config.bucket, Key=key)
+            return True
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                return False
+            raise
+
+    def _get_from_ext_retention(self, uid: str, created_at: datetime) -> bytes | None:
+        if not self._ext_retention_prefix:
+            return None
+        key = self._build_ext_retention_key(uid, created_at)
+        client = getattr(self._s3, "_client", None)
+        if client is None or not hasattr(client, "head_object"):
+            return None
+        try:
+            client.head_object(Bucket=self._s3._config.bucket, Key=key)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                return None
+            raise
+
+        response = client.get_object(Bucket=self._s3._config.bucket, Key=key)
+        body: StreamingBody = response["Body"]
+        return body.read()
+
+    def _build_ext_retention_key(self, uid: str, created_at: datetime) -> str:
+        prefix = self._ext_retention_prefix or "_ext_retention"
+        normalized = created_at.astimezone(timezone.utc)
+        ts = normalized.isoformat().replace("+00:00", "Z")
+        date_prefix = normalized.strftime("%Y%m%d")
+        return f"{prefix}/{date_prefix}/{uid}_{ts}.dat"
+
+    @staticmethod
+    def _normalize_timestamp(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     def _resolve_key_components(self, uid: str, created_at: datetime) -> tuple[str, str]:
         shard = locate_shard(uid=uid, created_at=created_at, n_bits=self._n_bits)

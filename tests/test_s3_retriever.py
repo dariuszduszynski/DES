@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import pytest
+from botocore.exceptions import ClientError
 
 from des_core.packer import pack_files_to_directory
 from des_core.packer_planner import FileToPack, PlannerConfig
@@ -47,6 +48,12 @@ class FakeS3Client:
             return {"Body": BytesIO(slice_data), "ContentRange": f"bytes {start}-{end}/{len(data)}"}
 
         raise ValueError(f"Unsupported Range: {Range}")
+
+    def head_object(self, Bucket: str, Key: str) -> dict[str, Any]:
+        obj = self.objects.get((Bucket, Key))
+        if obj is None:
+            raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
+        return {"ContentLength": len(obj)}
 
 
 def _pack_to_fake_s3(
@@ -121,3 +128,15 @@ def test_s3_retriever_multiple_shards_same_key(tmp_path: Path) -> None:
     for uid, data in payloads.items():
         assert retriever.has_file(uid, created)
         assert retriever.get_file(uid, created) == data
+
+
+def test_s3_retriever_prefers_extended_retention() -> None:
+    client = FakeS3Client()
+    created = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    ext_key = "_ext_retention/20240101/uid_2024-01-01T00:00:00Z.dat"
+    client.put_object(Bucket="test-bucket", Key=ext_key, Body=b"from-ext")
+
+    storage = S3ShardStorage(S3Config(bucket="test-bucket"), client=client)
+    retriever = S3ShardRetriever(storage, n_bits=8)
+
+    assert retriever.get_file("uid", created) == b"from-ext"

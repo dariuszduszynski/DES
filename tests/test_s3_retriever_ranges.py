@@ -1,6 +1,8 @@
 from datetime import datetime
 from pathlib import Path
 
+from botocore.exceptions import ClientError
+
 from des_core.compression import balanced_zstd_config
 from des_core.s3_retriever import S3Config, S3ShardRetriever, S3ShardStorage
 from des_core.shard_io import FOOTER_SIZE, HEADER_SIZE, ShardWriter
@@ -44,6 +46,12 @@ class FakeS3Client:
 
     def list_objects_v2(self, Bucket: str, Prefix: str, **kwargs):
         return {"Contents": [{"Key": k} for k in self.data_by_key.keys() if k.startswith(Prefix)]}
+
+    def head_object(self, Bucket: str, Key: str):
+        data = self.data_by_key.get(Key)
+        if data is None:
+            raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
+        return {"ContentLength": len(data)}
 
 
 def _build_shard(tmp_path: Path) -> tuple[Path, dict[str, bytes]]:
