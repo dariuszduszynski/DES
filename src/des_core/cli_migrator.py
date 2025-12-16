@@ -11,11 +11,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, cast
 
-try:
-    import yaml
-except ImportError:  # pragma: no cover
-    yaml = None
-
 from .config import S3SourceConfig
 from .db_connector import SourceDatabase
 from .migration_orchestrator import MigrationOrchestrator, MigrationResult
@@ -56,8 +51,11 @@ def _load_config(path: Path) -> Dict[str, Any]:
             raise ValueError("JSON config must decode to an object")
         raw = loaded
     elif suffix in {".yaml", ".yml"}:
-        if yaml is None:
-            raise RuntimeError("pyyaml is required to read YAML configs")
+        try:
+            import yaml
+        except ImportError as exc:
+            raise RuntimeError("pyyaml is required to read YAML configs") from exc
+
         loaded_yaml = yaml.safe_load(path.read_text())
         if not isinstance(loaded_yaml, dict):
             raise ValueError("YAML config must decode to a mapping")
