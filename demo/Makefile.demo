@@ -1,0 +1,118 @@
+.PHONY: help demo-start demo-stop demo-restart demo-logs demo-clean demo-status demo-init
+
+help:
+	@echo "DES Demo Environment - Available Commands:"
+	@echo ""
+	@echo "  make demo-start     - Start all demo services"
+	@echo "  make demo-stop      - Stop all demo services"
+	@echo "  make demo-restart   - Restart all demo services"
+	@echo "  make demo-logs      - Show logs (follow mode)"
+	@echo "  make demo-status    - Show status of all services"
+	@echo "  make demo-clean     - Stop and remove all data (DESTRUCTIVE)"
+	@echo "  make demo-init      - Initialize demo (first time setup)"
+	@echo ""
+	@echo "  make demo-test      - Run quick smoke tests"
+	@echo "  make demo-open-ui   - Open Business System UI in browser"
+	@echo "  make demo-open-minio - Open MinIO Console in browser"
+	@echo ""
+
+demo-start:
+	@echo "🚀 Starting DES Demo Environment..."
+	docker-compose -f docker-compose.demo.yml up -d
+	@echo "⏳ Waiting for services to be ready..."
+	@sleep 10
+	@echo "✅ Demo environment started!"
+	@echo ""
+	@echo "📋 Services:"
+	@echo "   Business System UI:  http://localhost:8080"
+	@echo "   DES API:             http://localhost:8000"
+	@echo "   MinIO Console:       http://localhost:9001 (minioadmin/minioadmin)"
+	@echo "   PostgreSQL:          localhost:5432 (business_user/business_pass)"
+	@echo ""
+	@make demo-status
+
+demo-stop:
+	@echo "🛑 Stopping DES Demo Environment..."
+	docker-compose -f docker-compose.demo.yml stop
+	@echo "✅ Demo environment stopped"
+
+demo-restart:
+	@echo "🔄 Restarting DES Demo Environment..."
+	docker-compose -f docker-compose.demo.yml restart
+	@echo "✅ Demo environment restarted"
+
+demo-logs:
+	@echo "📜 Showing logs (Ctrl+C to exit)..."
+	docker-compose -f docker-compose.demo.yml logs -f
+
+demo-status:
+	@echo "📊 Service Status:"
+	@docker-compose -f docker-compose.demo.yml ps
+
+demo-clean:
+	@echo "⚠️  WARNING: This will delete all data!"
+	@echo "Press Ctrl+C to cancel, or Enter to continue..."
+	@read confirm
+	@echo "🧹 Cleaning up..."
+	docker-compose -f docker-compose.demo.yml down -v
+	@echo "✅ Environment cleaned"
+
+demo-init: demo-start
+	@echo "🔧 Initializing demo environment..."
+	@sleep 15
+	@echo "✅ Initialization complete!"
+	@make demo-test
+
+demo-test:
+	@echo "🧪 Running smoke tests..."
+	@echo -n "Testing Business System... "
+	@curl -sf http://localhost:8080/health > /dev/null && echo "✅" || echo "❌"
+	@echo -n "Testing DES API... "
+	@curl -sf http://localhost:8000/health > /dev/null && echo "✅" || echo "❌"
+	@echo -n "Testing MinIO... "
+	@curl -sf http://localhost:9000/minio/health/live > /dev/null && echo "✅" || echo "❌"
+	@echo -n "Testing PostgreSQL... "
+	@docker exec des-postgres pg_isready -U business_user > /dev/null 2>&1 && echo "✅" || echo "❌"
+
+demo-open-ui:
+	@echo "🌐 Opening Business System UI..."
+	@open http://localhost:8080 || xdg-open http://localhost:8080 || start http://localhost:8080
+
+demo-open-minio:
+	@echo "🌐 Opening MinIO Console..."
+	@open http://localhost:9001 || xdg-open http://localhost:9001 || start http://localhost:9001
+
+# Development helpers
+demo-shell-business:
+	docker exec -it des-business-system /bin/bash
+
+demo-shell-postgres:
+	docker exec -it des-postgres psql -U business_user -d business_system
+
+demo-shell-des:
+	docker exec -it des-api /bin/bash
+
+demo-logs-business:
+	docker-compose -f docker-compose.demo.yml logs -f business-system
+
+demo-logs-des:
+	docker-compose -f docker-compose.demo.yml logs -f des-api
+
+demo-logs-minio:
+	docker-compose -f docker-compose.demo.yml logs -f minio
+
+# Quick demo scenarios
+demo-scenario-upload:
+	@echo "📤 Demo: Uploading sample file..."
+	@curl -X POST http://localhost:8080/api/files/upload \
+		-F "file=@README.md" \
+		-F "case_number=DEMO-2024-001" \
+		-F "department=Demo" \
+		-F "document_type=Documentation"
+
+demo-scenario-extend:
+	@echo "⏰ Demo: Extending retention for first file..."
+	@curl -X POST http://localhost:8080/api/files/1/extend-retention \
+		-F "retention_days=365" \
+		-F "reason=Legal Hold - Demo Case" \
+		-F "updated_by=demo_admin"

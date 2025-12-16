@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  # MinIO - S3 Compatible Storage
+  minio:
+    image: minio/minio:latest
+    container_name: des-minio
+    ports:
+      - "9000:9000"      # S3 API
+      - "9001:9001"      # Web Console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_DOMAIN: minio
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - des-network
+
+  # MinIO Client - bucket initialization
+  minio-init:
+    image: minio/mc:latest
+    container_name: des-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb myminio/des-bucket --ignore-existing;
+      /usr/bin/mc version enable myminio/des-bucket;
+      /usr/bin/mc retention set --default governance 90d myminio/des-bucket;
+      echo 'MinIO bucket initialized successfully';
+      "
+    networks:
+      - des-network
+
+  # PostgreSQL - Business System Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: des-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: business_system
+      POSTGRES_USER: business_user
+      POSTGRES_PASSWORD: business_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./demo/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U business_user -d business_system"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - des-network
+
+  # Business System Mock - Web UI + API
+  business-system:
+    build:
+      context: ./demo/business-system
+      dockerfile: Dockerfile
+    container_name: des-business-system
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgresql://business_user:business_pass@postgres:5432/business_system
+      DES_API_URL: http://des-api:8000
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: des-bucket
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./demo/business-system:/app
+    networks:
+      - des-network
+
+  # DES API - Core Service
+  des-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: des-api
+    ports:
+      - "8000:8000"
+    environment:
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: des-bucket
+      DATABASE_URL: postgresql://business_user:business_pass@postgres:5432/business_system
+    depends_on:
+      minio:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./des:/app/des
+    command: uvicorn des.api:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - des-network
+
+volumes:
+  minio_data:
+    driver: local
+  postgres_data:
+    driver: local
+
+networks:
+  des-network:
+    driver: bridge
