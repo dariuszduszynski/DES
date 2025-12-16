@@ -58,7 +58,8 @@ import json
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, BinaryIO, Dict, List, Optional
+from types import TracebackType
+from typing import Any, BinaryIO, Dict, List, Optional, Type
 
 from .bigfiles import resolve_bigfiles_dir
 from .compression import CompressionCodec, CompressionConfig
@@ -185,8 +186,8 @@ class ShardIndex:
     def values(self) -> List[ShardFileEntry]:
         return list(self.entries.values())
 
-    def items(self):
-        return self.entries.items()
+    def items(self) -> List[tuple[str, ShardFileEntry]]:
+        return list(self.entries.items())
 
 
 class ShardWriter:
@@ -227,7 +228,12 @@ class ShardWriter:
         self._write_header()
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: Type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         if exc_type is None:
             self._finalize()
         self._close_if_owned()
@@ -414,7 +420,12 @@ class ShardReader:
     def __enter__(self) -> "ShardReader":
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: Type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         if self._owns_stream:
             self._fp.close()
 

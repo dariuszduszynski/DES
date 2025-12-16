@@ -12,13 +12,13 @@ class MockRetriever:
         self.payload = payload
         self.calls = 0
 
-    def get_file(self, uid, created_at):
+    def get_file(self, uid: str | int, created_at: datetime) -> bytes:
         self.calls += 1
         return self.payload
 
 
 @mock_aws
-def test_first_time_move_to_ext_retention():
+def test_first_time_move_to_ext_retention() -> None:
     s3 = boto3.client("s3", region_name="us-east-1")
     s3.create_bucket(Bucket="test-bucket", ObjectLockEnabledForBucket=True)
 
@@ -37,15 +37,16 @@ def test_first_time_move_to_ext_retention():
 
     assert result["action"] == "moved"
     assert result["location"] == "extended_retention"
-    assert result["key"].startswith("_ext_retention/20241215/")
+    key = str(result["key"])
+    assert key.startswith("_ext_retention/20241215/")
 
-    stored = s3.get_object(Bucket="test-bucket", Key=result["key"])["Body"].read()
+    stored = s3.get_object(Bucket="test-bucket", Key=key)["Body"].read()
     assert stored == b"test file content"
     assert retriever.calls == 1
 
 
 @mock_aws
-def test_update_existing_retention():
+def test_update_existing_retention() -> None:
     s3 = boto3.client("s3", region_name="us-east-1")
     s3.create_bucket(Bucket="test-bucket", ObjectLockEnabledForBucket=True)
 
@@ -77,12 +78,12 @@ def test_update_existing_retention():
     assert second_result["action"] == "updated"
     assert retriever.calls == 0
 
-    stored = s3.get_object(Bucket="test-bucket", Key=first_result["key"])["Body"].read()
+    stored = s3.get_object(Bucket="test-bucket", Key=str(first_result["key"]))["Body"].read()
     assert stored == b"original"
 
 
 @mock_aws
-def test_due_date_must_be_future():
+def test_due_date_must_be_future() -> None:
     s3 = boto3.client("s3", region_name="us-east-1")
     s3.create_bucket(Bucket="test-bucket", ObjectLockEnabledForBucket=True)
 

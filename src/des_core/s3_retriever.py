@@ -240,6 +240,10 @@ class S3ShardRetriever:
         try:
             client.head_object(Bucket=self._s3._config.bucket, Key=key)
             return True
+        except KeyError:
+            return False
+        except KeyError:
+            return False
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code")
             if code in {"404", "NoSuchKey", "NotFound"}:
@@ -255,6 +259,8 @@ class S3ShardRetriever:
             return None
         try:
             client.head_object(Bucket=self._s3._config.bucket, Key=key)
+        except KeyError:
+            return None
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code")
             if code in {"404", "NoSuchKey", "NotFound"}:

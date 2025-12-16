@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Protocol, Tuple
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 import boto3
@@ -37,7 +37,7 @@ def is_s3_uri(path: str) -> bool:
     return path.startswith("s3://")
 
 
-def _parse_s3_uri(uri: str) -> Tuple[str, str]:
+def _parse_s3_uri(uri: str) -> tuple[str, str]:
     parsed = urlparse(uri)
     if parsed.scheme != "s3" or not parsed.netloc:
         raise ValueError(f"Invalid S3 URI: {uri!r}")
@@ -74,7 +74,7 @@ class S3FileReader:
         endpoint_url: str | None = None,
         max_retries: int = 3,
         retry_delay_seconds: float = 2.0,
-        client=None,
+        client: Any = None,
     ) -> None:
         if max_retries < 0:
             raise ValueError("max_retries must be non-negative")
@@ -85,7 +85,7 @@ class S3FileReader:
         self._client = client or boto3.client("s3", region_name=region_name, endpoint_url=endpoint_url)
 
     @classmethod
-    def from_config(cls, cfg: S3SourceConfig, *, client=None) -> "S3FileReader":
+    def from_config(cls, cfg: S3SourceConfig, *, client: Any = None) -> "S3FileReader":
         return cls(
             region_name=cfg.region_name,
             endpoint_url=cfg.endpoint_url,

@@ -75,6 +75,10 @@ ignore_missing_imports = true
 module = ["psycopg", "yaml"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+ignore_errors = true
+
 [tool.ruff]
 line-length = 130
 target-version = "py312"

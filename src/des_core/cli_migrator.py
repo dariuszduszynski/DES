@@ -9,12 +9,12 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, cast
 
 try:
-    import yaml  # type: ignore[import-untyped]
+    import yaml
 except ImportError:  # pragma: no cover
-    yaml = None  # type: ignore[assignment,misc]
+    yaml = None
 
 from .config import S3SourceConfig
 from .db_connector import SourceDatabase
@@ -51,14 +51,20 @@ def _load_config(path: Path) -> Dict[str, Any]:
     suffix = path.suffix.lower()
     raw: Dict[str, Any]
     if suffix == ".json":
-        raw = json.loads(path.read_text())
+        loaded = json.loads(path.read_text())
+        if not isinstance(loaded, dict):
+            raise ValueError("JSON config must decode to an object")
+        raw = loaded
     elif suffix in {".yaml", ".yml"}:
         if yaml is None:
             raise RuntimeError("pyyaml is required to read YAML configs")
-        raw = yaml.safe_load(path.read_text())
+        loaded_yaml = yaml.safe_load(path.read_text())
+        if not isinstance(loaded_yaml, dict):
+            raise ValueError("YAML config must decode to a mapping")
+        raw = loaded_yaml
     else:
         raise ValueError("Unsupported config format; use .json, .yaml, or .yml")
-    return _substitute_env(raw)
+    return cast(Dict[str, Any], _substitute_env(raw))
 
 
 def _substitute_env(value: Any) -> Any:

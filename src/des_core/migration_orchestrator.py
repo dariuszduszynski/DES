@@ -238,7 +238,7 @@ class MigrationOrchestrator:
             stats = self._db.get_archive_statistics(cutoff)
             total_files_raw = stats.get("total_files", 0)
             try:
-                total_files = int(total_files_raw)  # type: ignore[arg-type]
+                total_files = int(total_files_raw)
             except (TypeError, ValueError):
                 total_files = 0
             DES_MIGRATION_PENDING_FILES.set(total_files)

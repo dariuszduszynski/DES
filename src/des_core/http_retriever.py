@@ -10,13 +10,13 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from fastapi import FastAPI, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import AnyUrl, BaseModel
 
-from .ext_retention import ExtendedRetentionManager
+from .ext_retention import ExtendedRetentionManager, RetrieverProtocol
 from .multi_s3_retriever import MultiS3ShardRetriever
 from .retriever import LocalRetrieverConfig, LocalShardRetriever
 from .s3_retriever import S3Config, S3ShardRetriever, S3ShardStorage
@@ -107,7 +107,7 @@ def create_app(settings: HttpRetrieverSettings) -> FastAPI:
                 uid=uid,
                 created_at=request.created_at,
                 due_date=request.due_date,
-                retriever=retriever,
+                retriever=cast(RetrieverProtocol, retriever),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from typing import Protocol
+from typing import Any, Protocol
 
 import boto3
 from botocore.exceptions import ClientError
@@ -47,7 +47,7 @@ class ExtendedRetentionManager:
     def __init__(
         self,
         bucket: str,
-        s3_client=None,
+        s3_client: Any = None,
         *,
         prefix: str = "_ext_retention",
     ) -> None:

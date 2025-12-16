@@ -85,7 +85,7 @@ class MultiS3ShardRetriever:
             return S3ShardRetriever(zone.s3_config, n_bits=n_bits, ext_retention_prefix=ext_retention_prefix)
         except TypeError:
             # Support fakes in tests that don't accept the extra keyword.
-            return S3ShardRetriever(zone.s3_config, n_bits=n_bits)  # type: ignore[arg-type]
+            return S3ShardRetriever(zone.s3_config, n_bits=n_bits)
 
     def get_file(self, uid: str, created_at: datetime) -> bytes:
         """Return file contents by delegating to the zone responsible for the shard index."""

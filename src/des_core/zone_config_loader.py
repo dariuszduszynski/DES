@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, cast
 
 from .multi_s3_retriever import S3ZoneConfig, S3ZoneRange
 from .s3_retriever import S3Config
@@ -14,12 +14,18 @@ def _load_raw_config(path: Path) -> dict[str, Any]:
     suffix = path.suffix.lower()
     if suffix in {".yaml", ".yml"}:
         try:
-            import yaml  # type: ignore
+            import yaml
         except ImportError as exc:  # pragma: no cover - depends on optional dep
             raise RuntimeError("PyYAML is required to load YAML zone configs") from exc
-        return yaml.safe_load(path.read_text())
+        loaded: Any = yaml.safe_load(path.read_text())
+        if not isinstance(loaded, dict):
+            raise ValueError("Zones config must be a mapping")
+        return cast(dict[str, Any], loaded)
     if suffix == ".json":
-        return json.loads(path.read_text())
+        loaded_json: Any = json.loads(path.read_text())
+        if not isinstance(loaded_json, dict):
+            raise ValueError("Zones config must be a mapping")
+        return cast(dict[str, Any], loaded_json)
     raise ValueError(f"Unsupported zones config format: {path}")
 
 

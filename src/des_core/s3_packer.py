@@ -10,7 +10,7 @@ from typing import Iterable, cast
 import boto3
 
 from .bigfiles import build_bigfile_key
-from .config import DESConfig
+from .config import DESConfig, S3SourceConfig
 from .packer import ShardWriteResult, pack_files_to_directory
 from .packer_planner import FileToPack, PlannerConfig
 from .s3_retriever import S3Config, S3WriteClientProtocol, normalize_prefix
@@ -100,7 +100,7 @@ def pack_files_to_s3(
     delete_local: bool = True,
     client: S3WriteClientProtocol | None = None,
     des_config: DESConfig | None = None,
-    s3_source_config=None,
+    s3_source_config: S3SourceConfig | None = None,
 ) -> S3PackerResult:
     """Plan, write, and upload DES shard files to S3.
 

@@ -61,6 +61,12 @@ class TrackingS3Client:
 
         raise ValueError(f"Unsupported Range: {Range}")
 
+    def head_object(self, Bucket: str, Key: str) -> dict[str, Any]:
+        data = self.objects.get((Bucket, Key))
+        if data is None:
+            raise KeyError("Not found")
+        return {"ContentLength": len(data)}
+
 
 def test_write_small_file_embeds_in_shard(tmp_path: Path) -> None:
     des_cfg = DESConfig(big_file_threshold_bytes=1024)
@@ -143,6 +149,39 @@ def test_s3_reader_resolves_bigfile_correctly(tmp_path: Path) -> None:
     retriever = S3ShardRetriever(storage, n_bits=8, config=des_cfg)
 
     assert retriever.get_file("s3-uid", created_at) == payload
+
+
+def test_s3_reader_ignores_missing_ext_retention(tmp_path: Path) -> None:
+    """Regression: absence of ext retention object should not raise."""
+
+    des_cfg = DESConfig(big_file_threshold_bytes=8)
+    created_at = datetime(2024, 1, 1)
+    payload = b"B" * 64
+    files = [
+        FileToPack(
+            uid="s3-missing-ext",
+            created_at=created_at,
+            size_bytes=len(payload),
+            source_path=tmp_path / "source.bin",
+        )
+    ]
+    Path(files[0].source_path).write_bytes(payload)  # type: ignore[arg-type]
+
+    packer_result = pack_files_to_directory(files, tmp_path, PlannerConfig(max_shard_size_bytes=256), des_config=des_cfg)
+    shard = packer_result.shards[0]
+
+    client = TrackingS3Client()
+    shard_key = shard.path.name
+    client.put_object(Bucket="bucket", Key=shard_key, Body=shard.path.read_bytes())
+    for bf_hash in shard.bigfile_hashes:
+        bf_path = shard.path.parent / des_cfg.bigfiles_prefix / bf_hash
+        bf_key = build_bigfile_key(shard_key, des_cfg.bigfiles_prefix, bf_hash)
+        client.put_object(Bucket="bucket", Key=bf_key, Body=bf_path.read_bytes())
+
+    storage = S3ShardStorage(S3Config(bucket="bucket"), client=client)
+    retriever = S3ShardRetriever(storage, n_bits=8, config=des_cfg)
+
+    assert retriever.get_file("s3-missing-ext", created_at) == payload
     bf_key = build_bigfile_key(shard_key, des_cfg.bigfiles_prefix, next(iter(shard.bigfile_hashes)))
     assert any(key == bf_key and rng is None for key, rng in client.requests)
 
