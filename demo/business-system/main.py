@@ -3,19 +3,19 @@ Business System Mock - Demo aplikacja symulująca system merytoryczny
 Obsługuje upload plików, listowanie, i zarządzanie retencją przez DES API
 """
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from sqlalchemy import create_engine, Column, Integer, String, BigInteger, DateTime, Boolean, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-from datetime import datetime, timedelta
-from typing import Optional
+import logging
 import os
 import uuid
+from datetime import datetime, timedelta
+from typing import Optional
+
 import httpx
-import logging
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Integer, String, Text, create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import Session, sessionmaker
 
 # Configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://business_user:business_pass@localhost:5432/business_system")

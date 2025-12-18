@@ -3,19 +3,19 @@ Business System Mock - Demo aplikacja symulująca system merytoryczny
 Obsługuje upload plików, listowanie, i zarządzanie retencją przez DES API
 """
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from sqlalchemy import create_engine, Column, Integer, String, BigInteger, DateTime, Boolean, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-from datetime import datetime, timedelta
-from typing import Optional
+import logging
 import os
 import uuid
+from datetime import datetime, timedelta
+from typing import Optional
+
 import httpx
-import logging
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Integer, String, Text, create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import Session, sessionmaker
 
 # Configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://business_user:business_pass@localhost:5432/business_system")
@@ -184,15 +184,22 @@ async def extend_retention(
     db: Session = next(get_db())
 ):
     """Extend retention for a file - calls DES API"""
+    # Get file record
+    file_record = db.query(FileRecord).filter(FileRecord.id == file_id).first()
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    now = datetime.now()
+    if file_record.retention_updated_at:
+        seconds_since_update = (now - file_record.retention_updated_at).total_seconds()
+        if seconds_since_update < 5:
+            logger.warning("Retention update requested too soon after previous update for file_id=%s", file_id)
+            raise HTTPException(status_code=429, detail="Retention was just updated, please wait")
+    
+    # Calculate new due date
+    new_due_date = datetime.now() + timedelta(days=retention_days)
+    
     try:
-        # Get file record
-        file_record = db.query(FileRecord).filter(FileRecord.id == file_id).first()
-        if not file_record:
-            raise HTTPException(status_code=404, detail="File not found")
-        
-        # Calculate new due date
-        new_due_date = datetime.now() + timedelta(days=retention_days)
-        
         # Call DES API to set retention policy
         async with httpx.AsyncClient() as client:
             response = await client.put(
@@ -203,23 +210,33 @@ async def extend_retention(
                 },
                 timeout=30.0
             )
-            
-            if response.status_code != 200:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"DES API error: {response.text}"
-                )
-            
-            des_result = response.json()
-        
-        # Update database
-        previous_due_date = file_record.extended_retention_due_date
-        
+    except httpx.RequestError as e:
+        logger.error(f"DES API request failed: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"DES API unavailable: {str(e)}") from e
+    
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=f"DES API error: {response.text}"
+        )
+    
+    des_result = response.json()
+    previous_due_date = file_record.extended_retention_due_date
+    updated_at = datetime.now()
+    
+    if file_record.status in {"active", "expired"}:
+        new_status = "extended"
+    elif file_record.status == "extended":
+        new_status = file_record.status
+    else:
+        new_status = file_record.status
+    
+    try:
         file_record.extended_retention_due_date = new_due_date
         file_record.retention_reason = reason
-        file_record.retention_updated_at = datetime.now()
+        file_record.retention_updated_at = updated_at
         file_record.retention_updated_by = updated_by
-        file_record.status = 'extended'
+        file_record.status = new_status
         file_record.in_extended_retention = True
         
         # Add to history
@@ -233,22 +250,19 @@ async def extend_retention(
         
         db.add(history)
         db.commit()
-        
-        logger.info(f"Retention extended for {file_record.uid}: {retention_days} days")
-        
-        return {
-            "uid": file_record.uid,
-            "new_due_date": new_due_date.isoformat(),
-            "des_action": des_result.get("action"),
-            "message": "Retention extended successfully"
-        }
+    except Exception as db_error:
+        db.rollback()
+        logger.error("Database commit failed for retention extension: %s", str(db_error))
+        raise HTTPException(status_code=500, detail="Failed to persist retention update") from db_error
     
-    except httpx.RequestError as e:
-        logger.error(f"DES API request failed: {str(e)}")
-        raise HTTPException(status_code=503, detail=f"DES API unavailable: {str(e)}")
-    except Exception as e:
-        logger.error(f"Extend retention failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    logger.info(f"Retention extended for {file_record.uid}: {retention_days} days")
+    
+    return {
+        "uid": file_record.uid,
+        "new_due_date": new_due_date.isoformat(),
+        "des_action": des_result.get("action"),
+        "message": "Retention extended successfully"
+    }
 
 @app.get("/api/files/{file_id}/retention-history")
 async def get_retention_history(file_id: int, db: Session = next(get_db())):

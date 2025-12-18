@@ -17,6 +17,11 @@ class MockRetriever:
         return self.payload
 
 
+class MissingFileRetriever:
+    def get_file(self, uid: str | int, created_at: datetime) -> bytes:
+        raise KeyError(f"Missing file {uid} at {created_at.isoformat()}")
+
+
 @mock_aws
 def test_first_time_move_to_ext_retention() -> None:
     s3 = boto3.client("s3", region_name="us-east-1")
@@ -80,6 +85,26 @@ def test_update_existing_retention() -> None:
 
     stored = s3.get_object(Bucket="test-bucket", Key=str(first_result["key"]))["Body"].read()
     assert stored == b"original"
+
+
+@mock_aws
+def test_file_not_found_in_primary_storage() -> None:
+    s3 = boto3.client("s3", region_name="us-east-1")
+    s3.create_bucket(Bucket="test-bucket", ObjectLockEnabledForBucket=True)
+
+    manager = ExtendedRetentionManager("test-bucket", s3)
+    retriever = MissingFileRetriever()
+
+    created_at = datetime(2024, 12, 15, 10, 0, 0, tzinfo=timezone.utc)
+    due_date = datetime.now(timezone.utc) + timedelta(days=10)
+
+    with pytest.raises(FileNotFoundError):
+        manager.set_retention_policy(
+            uid="missing-uid",
+            created_at=created_at,
+            due_date=due_date,
+            retriever=retriever,
+        )
 
 
 @mock_aws

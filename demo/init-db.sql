@@ -35,6 +35,9 @@ CREATE TABLE files (
     CONSTRAINT files_uid_created_at_unique UNIQUE (uid, created_at)
 );
 
+ALTER TABLE files
+ADD CONSTRAINT files_status_check CHECK (status IN ('active', 'extended', 'expired'));
+
 -- Retention history - audit trail
 CREATE TABLE retention_history (
     id SERIAL PRIMARY KEY,
