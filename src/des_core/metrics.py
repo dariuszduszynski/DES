@@ -37,6 +37,11 @@ ext_retention_files = Gauge(
     "Current number of files in extended retention",
 )
 
+idempotency_rejections_total = Counter(
+    "des_idempotency_rejections_total",
+    "Number of rejected requests due to idempotency check",
+)
+
 DES_MIGRATION_CYCLES_TOTAL = Counter(
     "des_migration_cycles_total",
     "Number of migration cycles executed",
@@ -116,4 +121,5 @@ __all__ = [
     "ext_retention_moves_total",
     "ext_retention_updates_total",
     "ext_retention_files",
+    "idempotency_rejections_total",
 ]

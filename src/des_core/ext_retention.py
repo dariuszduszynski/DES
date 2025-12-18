@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 import boto3
 from botocore.exceptions import ClientError
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from .metrics import ext_retention_files, ext_retention_moves_total, ext_retention_updates_total
 
@@ -39,6 +40,15 @@ def _ensure_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _is_retryable_client_error(exc: BaseException) -> bool:
+    """Return True for retryable S3 client errors."""
+
+    if not isinstance(exc, ClientError):
+        return False
+    code = exc.response.get("Error", {}).get("Code")
+    return code in {"500", "503", "InternalError", "SlowDown"}
 
 
 class ExtendedRetentionManager:
@@ -101,6 +111,11 @@ class ExtendedRetentionManager:
         result = self._move_to_ext_retention(uid, normalized_created_at, retention_until, ext_key, retriever)
         return result
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception(_is_retryable_client_error),
+    )
     def _exists_in_ext_retention(self, key: str) -> bool:
         """Return True if the object exists in the extended retention prefix."""
 
@@ -113,6 +128,11 @@ class ExtendedRetentionManager:
                 return False
             raise
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception(_is_retryable_client_error),
+    )
     def _update_retention(self, key: str, due_date: datetime) -> None:
         """Update S3 object lock retention for an existing file."""
 
@@ -125,6 +145,11 @@ class ExtendedRetentionManager:
             },
         )
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception(_is_retryable_client_error),
+    )
     def _move_to_ext_retention(
         self,
         uid: str,
@@ -139,7 +164,6 @@ class ExtendedRetentionManager:
             data = retriever.get_file(uid, created_at)
         except KeyError as exc:
             raise FileNotFoundError(f"File {uid} not found for {created_at.isoformat()}") from exc
-
         self.s3.put_object(
             Bucket=self.bucket,
             Key=ext_key,

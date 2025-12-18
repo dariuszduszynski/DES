@@ -49,6 +49,10 @@ make -f Makefile.demo demo-start
 - **Business System UI**: http://localhost:8080
 - **MinIO Console**: http://localhost:9001 (minioadmin/minioadmin)
 
+## Environment Variables
+
+- `RETENTION_IDEMPOTENCY_SECONDS` - minimalny odstęp (w sekundach) pomiędzy kolejnymi zmianami retencji w Business System Mock (domyślnie 5s). Dodaj do `demo/.env` aby nadpisać.
+
 ## 🎯 Co robi ten setup?
 
 ### 4 główne komponenty:
@@ -212,6 +216,10 @@ docker-compose -f docker-compose.demo.yml logs business-system
 # Restart konkretnego serwisu
 docker-compose -f docker-compose.demo.yml restart business-system
 ```
+
+### Retries dla operacji S3
+- Operacje kopiowania i aktualizacji retencji w ExtendedRetentionManager sa ponawiane do 3 razy przy bledach S3 500/503/InternalError/SlowDown z exponential backoff (1s, 2s, 4s).
+- Jezeli po 3 probach blad sie utrzymuje, zadanie konczy sie wyjatkiem (RetryError/ClientError).
 
 ### Reset do stanu początkowego
 ```bash

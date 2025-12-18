@@ -17,6 +17,8 @@ from sqlalchemy import BigInteger, Boolean, Column, DateTime, Integer, String, T
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 
+from des_core.metrics import idempotency_rejections_total
+
 # Configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://business_user:business_pass@localhost:5432/business_system")
 DES_API_URL = os.getenv("DES_API_URL", "http://localhost:8000")
@@ -24,10 +26,12 @@ S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://localhost:9000")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "minioadmin")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "minioadmin")
 S3_BUCKET = os.getenv("S3_BUCKET", "des-bucket")
+IDEMPOTENCY_WINDOW = int(os.getenv("RETENTION_IDEMPOTENCY_SECONDS", "5"))
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.info("Idempotency window set to %d seconds", IDEMPOTENCY_WINDOW)
 
 # Database setup
 engine = create_engine(DATABASE_URL)
@@ -192,8 +196,9 @@ async def extend_retention(
     now = datetime.now()
     if file_record.retention_updated_at:
         seconds_since_update = (now - file_record.retention_updated_at).total_seconds()
-        if seconds_since_update < 5:
+        if seconds_since_update < IDEMPOTENCY_WINDOW:
             logger.warning("Retention update requested too soon after previous update for file_id=%s", file_id)
+            idempotency_rejections_total.inc()
             raise HTTPException(status_code=429, detail="Retention was just updated, please wait")
     
     # Calculate new due date
