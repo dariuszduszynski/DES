@@ -7,20 +7,27 @@ Environment variables:
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Literal, cast
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, Header, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import AnyUrl, BaseModel
 
 from .ext_retention import ExtendedRetentionManager, RetrieverProtocol
+from .metadata_manager import MetadataManager
 from .multi_s3_retriever import MultiS3ShardRetriever
 from .retriever import LocalRetrieverConfig, LocalShardRetriever
+from .routing import normalize_uid
 from .s3_retriever import S3Config, S3ShardRetriever, S3ShardStorage
+from .shard_metadata import ShardMetadata, TombstoneError
 from .zone_config_loader import load_zones_config
+
+logger = logging.getLogger(__name__)
 
 
 class HttpRetrieverSettings(BaseModel):
@@ -46,6 +53,17 @@ class HttpRetrieverSettings(BaseModel):
     # extended retention
     ext_retention_bucket: str | None = None
     ext_retention_prefix: str = "_ext_retention"
+
+    # deletion API
+    delete_api_key: str | None = None
+
+
+class DeletionReason(str, Enum):
+    """Reasons accepted for tombstone creation."""
+
+    GDPR = "GDPR"
+    retention_expired = "retention_expired"
+    user_request = "user_request"
 
 
 class RetentionPolicyRequest(BaseModel):
@@ -90,10 +108,68 @@ def create_app(settings: HttpRetrieverSettings) -> FastAPI:
 
         try:
             data = retriever.get_file(uid, dt)
+        except TombstoneError:
+            raise HTTPException(status_code=410, detail="File deleted")
         except KeyError:
             raise HTTPException(status_code=404, detail="File not found")
 
         return Response(content=data, media_type="application/octet-stream")
+
+    @app.delete("/files/{uid}")
+    async def delete_file(
+        uid: str,
+        created_at: str,
+        deleted_by: str,
+        reason: DeletionReason,
+        ticket_id: str | None = None,
+        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    ) -> dict[str, str]:
+        """Mark file as deleted (create tombstone)."""
+
+        if settings.delete_api_key is None:
+            raise HTTPException(status_code=503, detail="Delete API not configured")
+        if x_api_key != settings.delete_api_key:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        if not deleted_by.strip():
+            raise HTTPException(status_code=400, detail="deleted_by is required")
+
+        dt = _parse_created_at(created_at)
+
+        target = _resolve_deletion_retriever(retriever, uid, dt)
+        if target is None:
+            raise HTTPException(status_code=503, detail="Deletion not supported for this backend")
+        if target.metadata_manager is None:
+            raise HTTPException(status_code=503, detail="Metadata manager not configured")
+
+        shard_key, meta = _find_shard_for_delete(target, uid, dt)
+        if shard_key is None:
+            raise HTTPException(status_code=404, detail="File not found")
+        if meta is not None and meta.is_tombstoned(normalize_uid(uid), dt):
+            raise HTTPException(status_code=410, detail="File already deleted")
+
+        try:
+            target.metadata_manager.add_tombstone(
+                shard_key=shard_key,
+                uid=normalize_uid(uid),
+                created_at=dt,
+                deleted_by=deleted_by,
+                reason=reason.value,
+                ticket_id=ticket_id,
+            )
+        except KeyError:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        logger.info(
+            "Tombstoned uid=%s created_at=%s reason=%s deleted_by=%s ticket_id=%s shard=%s",
+            uid,
+            dt.isoformat(),
+            reason.value,
+            deleted_by,
+            ticket_id or "",
+            shard_key,
+        )
+
+        return {"status": "tombstoned"}
 
     @app.put("/files/{uid}/retention-policy")
     async def set_retention_policy(uid: str, request: RetentionPolicyRequest) -> dict[str, object]:
@@ -139,10 +215,15 @@ def build_retriever_from_settings(
             endpoint_url=str(settings.s3_endpoint_url) if settings.s3_endpoint_url else None,
         )
         storage = S3ShardStorage(s3_config)
+        s3_client = getattr(storage, "_client", None)
+        metadata_manager = None
+        if s3_client is not None:
+            metadata_manager = MetadataManager(s3_client, bucket=s3_config.bucket)
         return S3ShardRetriever(
             storage,
             n_bits=settings.n_bits,
             ext_retention_prefix=settings.ext_retention_prefix,
+            metadata_manager=metadata_manager,
         )
 
     if settings.backend == "multi_s3":
@@ -178,6 +259,48 @@ def _build_ext_retention_manager(
     return ExtendedRetentionManager(bucket=bucket, s3_client=s3_client, prefix=settings.ext_retention_prefix)
 
 
+def _resolve_deletion_retriever(
+    retriever: LocalShardRetriever | S3ShardRetriever | MultiS3ShardRetriever,
+    uid: str,
+    created_at: datetime,
+) -> S3ShardRetriever | None:
+    if isinstance(retriever, S3ShardRetriever):
+        return retriever
+    if isinstance(retriever, MultiS3ShardRetriever):
+        try:
+            return retriever.get_zone_retriever(uid, created_at)
+        except KeyError:
+            return None
+    return None
+
+
+def _find_shard_for_delete(
+    retriever: S3ShardRetriever,
+    uid: str,
+    created_at: datetime,
+) -> tuple[str | None, ShardMetadata | None]:
+    normalized_uid = normalize_uid(uid)
+    date_dir, shard_hex = retriever._resolve_key_components(normalized_uid, created_at)
+    metadata_manager = retriever.metadata_manager
+
+    for key in retriever._s3.list_candidate_keys(date_dir, shard_hex):
+        meta = None
+        if metadata_manager is not None:
+            try:
+                meta = metadata_manager.get_metadata(key)
+            except Exception as exc:
+                logger.warning("Failed to load metadata for %s: %s", key, exc)
+                meta = None
+        if meta is not None:
+            if meta.get_entry(normalized_uid, created_at) is not None:
+                return key, meta
+        _, index = retriever._get_index_and_version(key)
+        if index.get(normalized_uid) is not None:
+            return key, meta
+
+    return None, None
+
+
 def _load_settings_from_env() -> HttpRetrieverSettings:
     backend = os.environ.get("DES_BACKEND", "local").lower()
     n_bits = int(os.environ.get("DES_N_BITS", "8"))
@@ -191,6 +314,7 @@ def _load_settings_from_env() -> HttpRetrieverSettings:
             zones_config_path=Path(zones_path_env),
             ext_retention_bucket=os.environ.get("DES_EXT_RETENTION_BUCKET"),
             ext_retention_prefix=os.environ.get("DES_EXT_RETENTION_PREFIX", "_ext_retention"),
+            delete_api_key=os.environ.get("DES_DELETE_API_KEY"),
         )
 
     if backend == "s3" or os.environ.get("DES_S3_BUCKET"):
@@ -203,6 +327,7 @@ def _load_settings_from_env() -> HttpRetrieverSettings:
             s3_prefix=os.environ.get("DES_S3_PREFIX", ""),
             ext_retention_bucket=os.environ.get("DES_EXT_RETENTION_BUCKET") or os.environ.get("DES_S3_BUCKET"),
             ext_retention_prefix=os.environ.get("DES_EXT_RETENTION_PREFIX", "_ext_retention"),
+            delete_api_key=os.environ.get("DES_DELETE_API_KEY"),
         )
 
     base_dir = Path(os.environ.get("DES_BASE_DIR", "./data/des"))
@@ -213,6 +338,7 @@ def _load_settings_from_env() -> HttpRetrieverSettings:
         n_bits=n_bits,
         ext_retention_bucket=os.environ.get("DES_EXT_RETENTION_BUCKET"),
         ext_retention_prefix=os.environ.get("DES_EXT_RETENTION_PREFIX", "_ext_retention"),
+        delete_api_key=os.environ.get("DES_DELETE_API_KEY"),
     )
 
 

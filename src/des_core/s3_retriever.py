@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,7 +15,8 @@ from botocore.response import StreamingBody
 from .bigfiles import build_bigfile_key
 from .cache import Cache, LRUCache, LRUCacheConfig
 from .config import DESConfig
-from .metrics import DES_RETRIEVAL_SECONDS, DES_RETRIEVALS_TOTAL, DES_S3_RANGE_CALLS_TOTAL
+from .metadata_manager import MetadataManager, MetadataNotFoundError, entry_from_dict
+from .metrics import DES_RETRIEVAL_SECONDS, DES_RETRIEVALS_TOTAL, DES_S3_RANGE_CALLS_TOTAL, tombstone_checks_total
 from .routing import locate_shard, normalize_uid
 from .shard_io import (
     FOOTER_SIZE,
@@ -25,6 +27,9 @@ from .shard_io import (
     parse_header,
     parse_index,
 )
+from .shard_metadata import TombstoneError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -139,6 +144,7 @@ class S3ShardRetriever:
         index_cache: Cache[IndexCacheKey, CachedIndex] | None = None,
         config: DESConfig | None = None,
         ext_retention_prefix: str | None = "_ext_retention",
+        metadata_manager: MetadataManager | None = None,
     ) -> None:
         self._s3: S3ShardStorage
         if isinstance(s3_storage, S3Config):
@@ -149,6 +155,11 @@ class S3ShardRetriever:
         self._index_cache = index_cache or LRUCache[IndexCacheKey, CachedIndex](LRUCacheConfig(max_size=1024))
         self._config = config or DESConfig.from_env()
         self._ext_retention_prefix = ext_retention_prefix.strip("/") if ext_retention_prefix else ""
+        self._metadata_manager = metadata_manager
+
+    @property
+    def metadata_manager(self) -> MetadataManager | None:
+        return self._metadata_manager
 
     def has_file(self, uid: str | int, created_at: datetime) -> bool:
         normalized_uid = normalize_uid(uid)
@@ -180,26 +191,61 @@ class S3ShardRetriever:
     def _get_file_impl(self, uid: str | int, created_at: datetime) -> bytes:
         normalized_uid = normalize_uid(uid)
         normalized_created_at = self._normalize_timestamp(created_at)
-        ext_data = self._get_from_ext_retention(normalized_uid, normalized_created_at)
-        if ext_data is not None:
-            return ext_data
         date_dir, shard_hex = self._resolve_key_components(normalized_uid, created_at)
 
         for key in self._s3.list_candidate_keys(date_dir, shard_hex):
-            _, index = self._get_index_and_version(key)
-            entry = index.get(normalized_uid)
-            if entry is None:
-                continue
-            if entry.is_bigfile:
-                return self._get_bigfile(key, entry)
+            meta = None
+            if self._metadata_manager is not None:
+                try:
+                    meta = self._metadata_manager.get_metadata(key, rebuild_on_missing=False)
+                except MetadataNotFoundError:
+                    meta = None
+                except Exception as exc:
+                    logger.warning("Failed to load metadata for %s: %s", key, exc)
+                    meta = None
 
-            if entry.offset is None or entry.compressed_size is None:
-                raise ValueError(f"Inline entry missing offsets for UID {normalized_uid!r}")
-            DES_S3_RANGE_CALLS_TOTAL.labels(backend=self.backend_name, type="payload").inc()
-            payload = self._s3.get_range(key, entry.offset, entry.compressed_size)
-            return decompress_entry(entry, payload)
+            if meta is not None:
+                if meta.is_tombstoned(normalized_uid, normalized_created_at):
+                    tombstone_checks_total.labels(result="tombstoned").inc()
+                    raise TombstoneError(f"UID {normalized_uid!r} deleted for {normalized_created_at.isoformat()}")
+
+                entry_data = meta.get_entry(normalized_uid, normalized_created_at)
+                if entry_data is not None:
+                    tombstone_checks_total.labels(result="active").inc()
+                    ext_data = self._get_from_ext_retention(normalized_uid, normalized_created_at)
+                    if ext_data is not None:
+                        return ext_data
+                    try:
+                        entry = entry_from_dict(entry_data)
+                    except ValueError as exc:
+                        logger.warning("Invalid metadata entry for %s in %s: %s", normalized_uid, key, exc)
+                    else:
+                        return self._read_entry(key, entry)
+
+            _, index = self._get_index_and_version(key)
+            index_entry = index.get(normalized_uid)
+            if index_entry is None:
+                continue
+            ext_data = self._get_from_ext_retention(normalized_uid, normalized_created_at)
+            if ext_data is not None:
+                return ext_data
+            return self._read_entry(key, index_entry)
+
+        ext_data = self._get_from_ext_retention(normalized_uid, normalized_created_at)
+        if ext_data is not None:
+            return ext_data
 
         raise KeyError(f"UID {normalized_uid!r} not found for date {created_at.date()}")
+
+    def _read_entry(self, shard_key: str, entry: ShardFileEntry) -> bytes:
+        if entry.is_bigfile:
+            return self._get_bigfile(shard_key, entry)
+
+        if entry.offset is None or entry.compressed_size is None:
+            raise ValueError(f"Inline entry missing offsets for UID {entry.uid!r}")
+        DES_S3_RANGE_CALLS_TOTAL.labels(backend=self.backend_name, type="payload").inc()
+        payload = self._s3.get_range(shard_key, entry.offset, entry.compressed_size)
+        return decompress_entry(entry, payload)
 
     def _get_index_and_version(self, key: str) -> CachedIndex:
         cache_key = (self._s3._config.bucket, key)

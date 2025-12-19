@@ -94,3 +94,11 @@ class MultiS3ShardRetriever:
         shard_index = location.shard_index
         zone_idx = self._find_zone_index_for_shard(shard_index)
         return self._retrievers[zone_idx].get_file(uid, created_at)
+
+    def get_zone_retriever(self, uid: str, created_at: datetime) -> S3ShardRetriever:
+        """Return the S3 retriever responsible for the shard index."""
+
+        location = locate_shard(uid, created_at, n_bits=self._n_bits)
+        shard_index = location.shard_index
+        zone_idx = self._find_zone_index_for_shard(shard_index)
+        return self._retrievers[zone_idx]

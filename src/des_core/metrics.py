@@ -22,6 +22,38 @@ DES_S3_RANGE_CALLS_TOTAL = Counter(
     ["backend", "type"],
 )
 
+tombstones_created_total = Counter(
+    "des_tombstones_created_total",
+    "Number of tombstones created",
+    ["reason"],
+)
+
+tombstone_checks_total = Counter(
+    "des_tombstone_checks_total",
+    "Number of tombstone checks during retrieval",
+    ["result"],
+)
+
+metadata_cache_hits_total = Counter(
+    "des_metadata_cache_hits_total",
+    "Metadata cache hits",
+)
+
+metadata_cache_misses_total = Counter(
+    "des_metadata_cache_misses_total",
+    "Metadata cache misses",
+)
+
+metadata_rebuilds_total = Counter(
+    "des_metadata_rebuilds_total",
+    "Number of metadata files rebuilt from .des",
+)
+
+metadata_load_duration_seconds = Histogram(
+    "des_metadata_load_duration_seconds",
+    "Time to load metadata file",
+)
+
 ext_retention_moves_total = Counter(
     "des_ext_retention_moves_total",
     "Total files moved to extended retention",
@@ -105,6 +137,12 @@ __all__ = [
     "DES_RETRIEVALS_TOTAL",
     "DES_RETRIEVAL_SECONDS",
     "DES_S3_RANGE_CALLS_TOTAL",
+    "tombstone_checks_total",
+    "tombstones_created_total",
+    "metadata_cache_hits_total",
+    "metadata_cache_misses_total",
+    "metadata_rebuilds_total",
+    "metadata_load_duration_seconds",
     "DES_S3_SOURCE_READS_TOTAL",
     "DES_S3_SOURCE_BYTES_DOWNLOADED",
     "DES_S3_SOURCE_READ_SECONDS",

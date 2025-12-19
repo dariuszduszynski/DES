@@ -20,6 +20,7 @@ dependencies = [
   "lz4>=4.3.2",
   "prometheus-client>=0.20.0",
   "tenacity>=8.2.0",
+  "click>=8.1.0",
   "sqlalchemy>=2.0.0",
   "psycopg[binary]>=3.1.0",
   "psycopg2-binary>=2.9.0",
@@ -54,6 +55,7 @@ des-pack = "des_core.cli_packer:main"
 des-http = "des_core.http_retriever:app"
 des-stats = "des_core.cli_stats:main"
 des-migrate = "des_core.cli_migrator:main"
+des-meta = "des_core.cli_meta:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

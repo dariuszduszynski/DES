@@ -18,6 +18,7 @@ from .http_retriever import (
     HttpRetrieverSettings,
     create_app,
 )
+from .metadata_manager import MetadataManager
 from .migration_orchestrator import MigrationOrchestrator, MigrationResult
 from .multi_s3_retriever import (
     MultiS3ShardRetriever,
@@ -70,6 +71,7 @@ from .shard_io import (
     ShardReader,
     ShardWriter,
 )
+from .shard_metadata import ShardMetadata, TombstoneError
 
 __all__ = [
     "ShardLocation",
@@ -82,6 +84,8 @@ __all__ = [
     "ShardIndex",
     "ShardReader",
     "ShardWriter",
+    "ShardMetadata",
+    "TombstoneError",
     "PackerResult",
     "ShardWriteResult",
     "ArchiveWindow",
@@ -92,6 +96,7 @@ __all__ = [
     "SourceFileRecord",
     "MigrationOrchestrator",
     "MigrationResult",
+    "MetadataManager",
     "DESConfig",
     "S3SourceConfig",
     "LocalRetrieverConfig",
