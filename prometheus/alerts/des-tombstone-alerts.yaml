@@ -1,0 +1,123 @@
+groups:
+  - name: des_tombstone_alerts
+    interval: 30s
+    rules:
+      - alert: HighMetadataRebuildRate
+        expr: rate(des_metadata_rebuilds_total[1h]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: metadata
+        annotations:
+          summary: "High metadata rebuild rate detected"
+          description: |
+            Metadata rebuild rate is {{ $value | humanize }} rebuilds/sec.
+            This may indicate:
+            - Missing .meta files (migration incomplete)
+            - Corrupted .meta files
+            - Frequent cache evictions
+
+            Check logs for errors and run: des-meta verify
+          runbook_url: "https://wiki.example.com/des/runbook#high-rebuild-rate"
+
+      - alert: LowMetadataCacheHitRate
+        expr: |
+          rate(des_metadata_cache_hits_total[5m])
+          /
+          (rate(des_metadata_cache_hits_total[5m]) + rate(des_metadata_cache_misses_total[5m]))
+          < 0.5
+        for: 10m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Metadata cache hit rate below 50%"
+          description: |
+            Cache hit rate: {{ $value | humanizePercentage }}
+
+            Possible causes:
+            - Cache size too small (increase DES_METADATA_CACHE_SIZE)
+            - High churn in accessed shards
+            - Memory pressure causing evictions
+
+            Current cache size: Check des_metadata_cache_size metric
+          runbook_url: "https://wiki.example.com/des/runbook#low-cache-hit-rate"
+
+      - alert: DeleteAPIHighErrorRate
+        expr: |
+          rate(http_requests_total{endpoint="/files/{uid}",method="DELETE",status=~"5.."}[5m])
+          > 1
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "DELETE API returning server errors"
+          description: |
+            DELETE API error rate: {{ $value | humanize }} errors/sec
+
+            Check:
+            - S3 connectivity
+            - MetadataManager errors in logs
+            - API pod health
+
+            Recent errors: kubectl logs -l app=des-http-retriever --tail=100
+          runbook_url: "https://wiki.example.com/des/runbook#delete-api-errors"
+
+      - alert: HighTombstoneAccessRate
+        expr: rate(des_tombstone_checks_total{result="tombstoned"}[5m]) > 100
+        for: 10m
+        labels:
+          severity: info
+          component: retrieval
+        annotations:
+          summary: "High rate of tombstoned file access attempts"
+          description: |
+            Rate: {{ $value | humanize }} tombstoned checks/sec
+
+            This is informational. Possible causes:
+            - Client retries of deleted files
+            - Stale references in business system
+            - Pending repack not yet completed
+
+            No action needed unless rate is abnormally high.
+
+      - alert: FrequentMetadataRebuilds
+        expr: rate(des_metadata_rebuilds_total[15m]) > 1
+        for: 15m
+        labels:
+          severity: warning
+          component: metadata
+        annotations:
+          summary: "Frequent metadata rebuilds indicate missing .meta files"
+          description: |
+            Rebuild rate: {{ $value | humanize }}/sec
+
+            Action required:
+            1. Run metadata generation: des-meta generate --bucket <bucket> --prefix shards/
+            2. Verify shards: des-meta verify --bucket <bucket> --shard <key>
+            3. Check S3 bucket permissions
+
+            This alert should clear after meta generation completes.
+
+      - alert: HighMetadataLoadLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            rate(des_metadata_load_duration_seconds_bucket[5m])
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "Metadata load latency is high (p95 > 1s)"
+          description: |
+            P95 latency: {{ $value | humanizeDuration }}
+
+            Possible causes:
+            - S3 throttling
+            - Large .meta files (>50MB)
+            - Network issues
+
+            Check S3 metrics and meta file sizes.

@@ -162,3 +162,125 @@ def test_delete_file_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     )
 
     assert resp.status_code == 404
+
+
+def test_delete_file_no_api_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """DELETE without API key should return 401 Unauthorized."""
+
+    created = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    client = FakeS3Client()
+    _pack_to_fake_s3(tmp_path, {"uid-1": b"data"}, created, client)
+
+    storage = S3ShardStorage(S3Config(bucket="test-bucket"), client=client)
+    metadata_manager = MetadataManager(client, bucket="test-bucket")
+    retriever = S3ShardRetriever(storage, n_bits=8, metadata_manager=metadata_manager)
+
+    monkeypatch.setattr(http_retriever, "build_retriever_from_settings", lambda _: retriever)
+    settings = HttpRetrieverSettings(backend="s3", s3_bucket="test-bucket", delete_api_key="secret")
+    app = create_app(settings)
+    api = TestClient(app)
+
+    resp = api.delete(
+        "/files/uid-1",
+        params={"created_at": created.isoformat(), "deleted_by": "admin", "reason": "GDPR"},
+    )
+
+    assert resp.status_code == 401
+    assert "Unauthorized" in resp.json()["detail"]
+
+
+def test_delete_file_wrong_api_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """DELETE with wrong API key should return 401 Unauthorized."""
+
+    created = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    client = FakeS3Client()
+    _pack_to_fake_s3(tmp_path, {"uid-1": b"data"}, created, client)
+
+    storage = S3ShardStorage(S3Config(bucket="test-bucket"), client=client)
+    metadata_manager = MetadataManager(client, bucket="test-bucket")
+    retriever = S3ShardRetriever(storage, n_bits=8, metadata_manager=metadata_manager)
+
+    monkeypatch.setattr(http_retriever, "build_retriever_from_settings", lambda _: retriever)
+    settings = HttpRetrieverSettings(backend="s3", s3_bucket="test-bucket", delete_api_key="secret")
+    app = create_app(settings)
+    api = TestClient(app)
+
+    resp = api.delete(
+        "/files/uid-1",
+        params={"created_at": created.isoformat(), "deleted_by": "admin", "reason": "GDPR"},
+        headers={"X-API-Key": "wrong-key"},
+    )
+
+    assert resp.status_code == 401
+    assert "Unauthorized" in resp.json()["detail"]
+
+
+def test_delete_file_invalid_created_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """DELETE with invalid created_at should return 400 Bad Request."""
+
+    client = FakeS3Client()
+    storage = S3ShardStorage(S3Config(bucket="test-bucket"), client=client)
+    metadata_manager = MetadataManager(client, bucket="test-bucket")
+    retriever = S3ShardRetriever(storage, n_bits=8, metadata_manager=metadata_manager)
+
+    monkeypatch.setattr(http_retriever, "build_retriever_from_settings", lambda _: retriever)
+    settings = HttpRetrieverSettings(backend="s3", s3_bucket="test-bucket", delete_api_key="secret")
+    app = create_app(settings)
+    api = TestClient(app)
+
+    resp = api.delete(
+        "/files/uid-1",
+        params={"created_at": "not-a-date", "deleted_by": "admin", "reason": "GDPR"},
+        headers={"X-API-Key": "secret"},
+    )
+
+    assert resp.status_code == 400
+    assert "Invalid created_at format" in resp.json()["detail"]
+
+
+def test_delete_file_missing_deleted_by(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """DELETE without deleted_by should return 400 Bad Request."""
+
+    created = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    client = FakeS3Client()
+    _pack_to_fake_s3(tmp_path, {"uid-1": b"data"}, created, client)
+
+    storage = S3ShardStorage(S3Config(bucket="test-bucket"), client=client)
+    metadata_manager = MetadataManager(client, bucket="test-bucket")
+    retriever = S3ShardRetriever(storage, n_bits=8, metadata_manager=metadata_manager)
+
+    monkeypatch.setattr(http_retriever, "build_retriever_from_settings", lambda _: retriever)
+    settings = HttpRetrieverSettings(backend="s3", s3_bucket="test-bucket", delete_api_key="secret")
+    app = create_app(settings)
+    api = TestClient(app)
+
+    resp = api.delete(
+        "/files/uid-1",
+        params={"created_at": created.isoformat(), "deleted_by": "", "reason": "GDPR"},
+        headers={"X-API-Key": "secret"},
+    )
+
+    assert resp.status_code == 400
+    assert "deleted_by is required" in resp.json()["detail"]
+
+
+def test_delete_file_api_not_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """DELETE when delete_api_key not configured should return 503."""
+
+    created = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    client = FakeS3Client()
+    storage = S3ShardStorage(S3Config(bucket="test-bucket"), client=client)
+    retriever = S3ShardRetriever(storage, n_bits=8)
+
+    monkeypatch.setattr(http_retriever, "build_retriever_from_settings", lambda _: retriever)
+    settings = HttpRetrieverSettings(backend="s3", s3_bucket="test-bucket", delete_api_key=None)
+    app = create_app(settings)
+    api = TestClient(app)
+
+    resp = api.delete(
+        "/files/uid-1",
+        params={"created_at": created.isoformat(), "deleted_by": "admin", "reason": "GDPR"},
+    )
+
+    assert resp.status_code == 503
+    assert "Delete API not configured" in resp.json()["detail"]

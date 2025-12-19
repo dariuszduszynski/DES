@@ -1,0 +1,142 @@
+{
+  "dashboard": {
+    "title": "DES Tombstone Management",
+    "tags": ["des", "tombstone", "metadata"],
+    "timezone": "utc",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Tombstone Creation Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(des_tombstones_created_total[5m])",
+            "legendFormat": "{{reason}}"
+          }
+        ],
+        "yaxes": [
+          { "label": "tombstones/sec", "format": "short" }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Total Tombstones by Reason",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "sum by (reason) (des_tombstones_created_total)",
+            "legendFormat": "{{reason}}"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Tombstone Checks (Retrieval)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(des_tombstone_checks_total{result=\"tombstoned\"}[5m])",
+            "legendFormat": "Tombstoned (410 Gone)"
+          },
+          {
+            "expr": "rate(des_tombstone_checks_total{result=\"active\"}[5m])",
+            "legendFormat": "Active (200 OK)"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Metadata Cache Hit Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(des_metadata_cache_hits_total[5m]) / (rate(des_metadata_cache_hits_total[5m]) + rate(des_metadata_cache_misses_total[5m]))",
+            "legendFormat": "Cache Hit Rate"
+          }
+        ],
+        "yaxes": [
+          { "label": "ratio", "format": "percentunit", "min": 0, "max": 1 }
+        ],
+        "thresholds": [
+          { "value": 0.8, "color": "green" },
+          { "value": 0.5, "color": "yellow" },
+          { "value": 0.2, "color": "red" }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Metadata Rebuild Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(des_metadata_rebuilds_total[5m])",
+            "legendFormat": "Rebuilds/sec"
+          }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": { "type": "gt", "params": [10] },
+              "query": { "params": ["A", "5m", "now"] },
+              "reducer": { "type": "avg" }
+            }
+          ],
+          "name": "High Metadata Rebuild Rate"
+        }
+      },
+      {
+        "id": 6,
+        "title": "Metadata Load Duration (p95)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(des_metadata_load_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95 latency"
+          }
+        ],
+        "yaxes": [
+          { "label": "seconds", "format": "s" }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "DELETE API Requests",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{endpoint=\"/files/{uid}\",method=\"DELETE\",status=\"200\"}[5m])",
+            "legendFormat": "200 OK (Success)"
+          },
+          {
+            "expr": "rate(http_requests_total{endpoint=\"/files/{uid}\",method=\"DELETE\",status=\"410\"}[5m])",
+            "legendFormat": "410 Gone (Already Deleted)"
+          },
+          {
+            "expr": "rate(http_requests_total{endpoint=\"/files/{uid}\",method=\"DELETE\",status=\"401\"}[5m])",
+            "legendFormat": "401 Unauthorized"
+          },
+          {
+            "expr": "rate(http_requests_total{endpoint=\"/files/{uid}\",method=\"DELETE\",status=\"404\"}[5m])",
+            "legendFormat": "404 Not Found"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Retrieval: 410 Gone Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{endpoint=\"/files/{uid}\",status=\"410\"}[5m])",
+            "legendFormat": "410 Gone/sec"
+          }
+        ],
+        "thresholds": [
+          { "value": 0, "color": "green" },
+          { "value": 1, "color": "yellow" },
+          { "value": 10, "color": "red" }
+        ]
+      }
+    ]
+  }
+}
