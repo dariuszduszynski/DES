@@ -32,6 +32,10 @@ from .shard_metadata import TombstoneError
 logger = logging.getLogger(__name__)
 
 
+class CorruptionError(Exception):
+    """Raised when checksum verification fails."""
+
+
 @dataclass(frozen=True)
 class S3Config:
     """Configuration for accessing DES shards in S3-compatible storage."""
@@ -145,6 +149,7 @@ class S3ShardRetriever:
         config: DESConfig | None = None,
         ext_retention_prefix: str | None = "_ext_retention",
         metadata_manager: MetadataManager | None = None,
+        verify_checksums: bool = False,
     ) -> None:
         self._s3: S3ShardStorage
         if isinstance(s3_storage, S3Config):
@@ -156,6 +161,7 @@ class S3ShardRetriever:
         self._config = config or DESConfig.from_env()
         self._ext_retention_prefix = ext_retention_prefix.strip("/") if ext_retention_prefix else ""
         self._metadata_manager = metadata_manager
+        self._verify_checksums = verify_checksums
 
     @property
     def metadata_manager(self) -> MetadataManager | None:
@@ -214,13 +220,16 @@ class S3ShardRetriever:
                     tombstone_checks_total.labels(result="active").inc()
                     ext_data = self._get_from_ext_retention(normalized_uid, normalized_created_at)
                     if ext_data is not None:
+                        self._maybe_verify_checksum(key, normalized_uid, normalized_created_at, ext_data)
                         return ext_data
                     try:
                         entry = entry_from_dict(entry_data)
                     except ValueError as exc:
                         logger.warning("Invalid metadata entry for %s in %s: %s", normalized_uid, key, exc)
                     else:
-                        return self._read_entry(key, entry)
+                        data = self._read_entry(key, entry)
+                        self._maybe_verify_checksum(key, normalized_uid, normalized_created_at, data)
+                        return data
 
             _, index = self._get_index_and_version(key)
             index_entry = index.get(normalized_uid)
@@ -236,6 +245,16 @@ class S3ShardRetriever:
             return ext_data
 
         raise KeyError(f"UID {normalized_uid!r} not found for date {created_at.date()}")
+
+    def _maybe_verify_checksum(self, shard_key: str, uid: str, created_at: datetime, data: bytes) -> None:
+        if not self._verify_checksums or self._metadata_manager is None:
+            return
+        try:
+            is_valid = self._metadata_manager.verify_entry_checksum(shard_key, uid, created_at, data)
+            if not is_valid:
+                raise CorruptionError(f"Checksum mismatch for {uid}")
+        except Exception as exc:
+            logger.warning("Checksum verification failed for %s: %s", uid, exc)
 
     def _read_entry(self, shard_key: str, entry: ShardFileEntry) -> bytes:
         if entry.is_bigfile:

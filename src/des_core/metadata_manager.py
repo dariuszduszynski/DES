@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from datetime import datetime, timezone
@@ -10,16 +11,20 @@ from typing import Any, Optional
 
 from botocore.exceptions import ClientError
 
+from .bigfiles import build_bigfile_key
 from .cache import Cache, LRUCache, LRUCacheConfig
 from .compression import CompressionCodec
+from .config import DESConfig
 from .metrics import (
+    checksum_computation_seconds,
+    checksum_verifications_total,
     metadata_cache_hits_total,
     metadata_cache_misses_total,
     metadata_load_duration_seconds,
     metadata_rebuilds_total,
     tombstones_created_total,
 )
-from .shard_io import ShardFileEntry, ShardReader
+from .shard_io import ShardFileEntry, ShardReader, decompress_entry
 from .shard_metadata import ShardMetadata
 
 logger = logging.getLogger(__name__)
@@ -156,6 +161,35 @@ class MetadataManager:
         self._cache.set(shard_key, meta)
         return meta
 
+    def _fetch_entry_payload(self, shard_key: str, entry: ShardFileEntry) -> bytes:
+        """Fetch payload bytes for a shard entry."""
+
+        if entry.is_bigfile:
+            if entry.bigfile_hash is None:
+                raise ValueError("Bigfile entry missing hash.")
+            config = DESConfig.from_env()
+            bigfile_key = build_bigfile_key(shard_key, config.bigfiles_prefix, entry.bigfile_hash)
+            response = self.s3.get_object(Bucket=self.bucket, Key=bigfile_key)
+            body = response["Body"].read()
+            if not isinstance(body, (bytes, bytearray)):
+                raise ValueError("Bigfile payload is not bytes")
+            return bytes(body)
+
+        if entry.offset is None:
+            raise ValueError("Inline entry missing offset.")
+        length = entry.length if entry.length is not None else entry.compressed_size
+        if length is None:
+            raise ValueError("Inline entry missing length.")
+        response = self.s3.get_object(
+            Bucket=self.bucket,
+            Key=shard_key,
+            Range=f"bytes={entry.offset}-{entry.offset + length - 1}",
+        )
+        body = response["Body"].read()
+        if not isinstance(body, (bytes, bytearray)):
+            raise ValueError("Shard payload is not bytes")
+        return bytes(body)
+
     def _rebuild_metadata(self, shard_key: str) -> ShardMetadata:
         """Rebuild metadata by reading the shard index."""
 
@@ -174,7 +208,18 @@ class MetadataManager:
                 key = ShardMetadata.build_key(uid, created_at)
             else:
                 key = uid
-            index[key] = _entry_to_dict(entry)
+            entry_dict = _entry_to_dict(entry)
+            payload = self._fetch_entry_payload(shard_key, entry)
+            if entry.is_bigfile:
+                data = payload
+            else:
+                data = decompress_entry(entry, payload)
+            start = time.perf_counter()
+            checksum = hashlib.sha256(data).hexdigest()
+            checksum_computation_seconds.labels(operation="rebuild").observe(time.perf_counter() - start)
+            entry_dict["checksum"] = checksum
+            entry_dict["checksum_algo"] = "sha256"
+            index[key] = entry_dict
 
         now = datetime.now(timezone.utc)
         created_at = response.get("LastModified")
@@ -196,6 +241,56 @@ class MetadataManager:
 
         self.save_metadata(shard_key, meta)
         return meta
+
+    def verify_entry_checksum(
+        self,
+        shard_key: str,
+        uid: str,
+        created_at: datetime,
+        data: bytes,
+    ) -> bool:
+        """Verify checksum for a file entry."""
+
+        meta = self.get_metadata(shard_key)
+        entry = meta.get_entry(uid, created_at)
+
+        if entry is None:
+            raise KeyError(f"Entry not found: {uid}")
+
+        stored_checksum = entry.get("checksum")
+        if stored_checksum is None:
+            checksum_verifications_total.labels(status="missing").inc()
+            logger.warning("No checksum for %s (old format)", uid)
+            return False
+        if not isinstance(stored_checksum, str):
+            checksum_verifications_total.labels(status="failure").inc()
+            logger.warning("Invalid checksum type for %s: %s", uid, type(stored_checksum).__name__)
+            return False
+
+        algo = entry.get("checksum_algo", "sha256")
+        if not isinstance(algo, str) or algo != "sha256":
+            checksum_verifications_total.labels(status="failure").inc()
+            logger.warning("Unknown checksum algo: %s", algo)
+            return False
+
+        start = time.perf_counter()
+        computed = hashlib.sha256(data).hexdigest()
+        checksum_computation_seconds.labels(operation="verify").observe(time.perf_counter() - start)
+
+        match = computed == stored_checksum
+
+        if match:
+            checksum_verifications_total.labels(status="success").inc()
+        else:
+            checksum_verifications_total.labels(status="failure").inc()
+            logger.error(
+                "Checksum mismatch for %s: expected=%s computed=%s",
+                uid,
+                stored_checksum,
+                computed,
+            )
+
+        return match
 
     def add_tombstone(
         self,

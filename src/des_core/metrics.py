@@ -54,6 +54,18 @@ metadata_load_duration_seconds = Histogram(
     "Time to load metadata file",
 )
 
+checksum_verifications_total = Counter(
+    "des_checksum_verifications_total",
+    "Number of checksum verifications",
+    ["status"],
+)
+
+checksum_computation_seconds = Histogram(
+    "des_checksum_computation_seconds",
+    "Time to compute checksums",
+    ["operation"],
+)
+
 ext_retention_moves_total = Counter(
     "des_ext_retention_moves_total",
     "Total files moved to extended retention",
@@ -143,6 +155,8 @@ __all__ = [
     "metadata_cache_misses_total",
     "metadata_rebuilds_total",
     "metadata_load_duration_seconds",
+    "checksum_verifications_total",
+    "checksum_computation_seconds",
     "DES_S3_SOURCE_READS_TOTAL",
     "DES_S3_SOURCE_BYTES_DOWNLOADED",
     "DES_S3_SOURCE_READ_SECONDS",
