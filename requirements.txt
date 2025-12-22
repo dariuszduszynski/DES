@@ -6,3 +6,5 @@ lz4>=4.3.2
 prometheus-client>=0.20.0
 tenacity>=8.2.0
 click>=8.1.0
+pyyaml>=6.0.0
+cryptography>=42.0.0

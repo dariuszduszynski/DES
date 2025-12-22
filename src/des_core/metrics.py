@@ -54,6 +54,12 @@ metadata_load_duration_seconds = Histogram(
     "Time to load metadata file",
 )
 
+des_auth_requests_total = Counter(
+    "des_auth_requests_total",
+    "Number of public key auth requests",
+    ["result"],
+)
+
 checksum_verifications_total = Counter(
     "des_checksum_verifications_total",
     "Number of checksum verifications",
@@ -155,6 +161,7 @@ __all__ = [
     "metadata_cache_misses_total",
     "metadata_rebuilds_total",
     "metadata_load_duration_seconds",
+    "des_auth_requests_total",
     "checksum_verifications_total",
     "checksum_computation_seconds",
     "DES_S3_SOURCE_READS_TOTAL",

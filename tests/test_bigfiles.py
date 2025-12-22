@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from des_core.bigfiles import build_bigfile_key
@@ -235,7 +235,7 @@ _case_strategy = st.builds(
 
 
 @given(cases=_case_strategy)
-@settings(max_examples=15)
+@settings(max_examples=15, suppress_health_check=[HealthCheck.too_slow])
 def test_bigfile_roundtrip_fuzz(cases: list[tuple[str, bytes]]) -> None:
     des_cfg = DESConfig(big_file_threshold_bytes=64)
     created_at = datetime(2024, 1, 1)

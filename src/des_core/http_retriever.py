@@ -18,6 +18,7 @@ from fastapi import FastAPI, Header, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import AnyUrl, BaseModel
 
+from .auth import PublicKeyAuthenticator
 from .ext_retention import ExtendedRetentionManager, RetrieverProtocol
 from .metadata_manager import MetadataManager
 from .multi_s3_retriever import MultiS3ShardRetriever
@@ -57,6 +58,10 @@ class HttpRetrieverSettings(BaseModel):
     # deletion API
     delete_api_key: str | None = None
 
+    # public key authentication
+    authorized_keys_path: Path | None = None
+    require_authentication: bool = False
+
 
 class DeletionReason(str, Enum):
     """Reasons accepted for tombstone creation."""
@@ -90,6 +95,57 @@ def create_app(settings: HttpRetrieverSettings) -> FastAPI:
 
     retriever = build_retriever_from_settings(settings)
     ext_retention_mgr = _build_ext_retention_manager(settings, retriever)
+    authenticator = None
+    if settings.authorized_keys_path:
+        authenticator = PublicKeyAuthenticator(settings.authorized_keys_path)
+        authenticator.install_signal_handler()
+    elif settings.require_authentication:
+        logger.warning("Authentication required but authorized_keys_path is not configured")
+
+    def _authorize_request(
+        *,
+        uid: str,
+        created_at_raw: str,
+        action: str,
+        x_des_public_key: str | None,
+        x_des_signature: str | None,
+        x_des_timestamp: str | None,
+        x_des_nonce: str | None,
+    ) -> None:
+        if authenticator is None:
+            if settings.require_authentication:
+                raise HTTPException(status_code=503, detail="Authentication not configured")
+            return
+
+        if not any([x_des_public_key, x_des_signature, x_des_timestamp, x_des_nonce]):
+            if settings.require_authentication:
+                raise HTTPException(status_code=401, detail="Authentication required")
+            return
+
+        if not all([x_des_public_key, x_des_signature, x_des_timestamp, x_des_nonce]):
+            raise HTTPException(status_code=401, detail="Missing authentication headers")
+
+        assert x_des_public_key is not None
+        assert x_des_signature is not None
+        assert x_des_timestamp is not None
+        assert x_des_nonce is not None
+
+        canonical = f"{uid}|{created_at_raw}|{x_des_timestamp}|{x_des_nonce}"
+        is_valid, key, error = authenticator.verify_signature(
+            public_key_b64=x_des_public_key,
+            signature_b64=x_des_signature,
+            canonical_data=canonical,
+            timestamp=x_des_timestamp,
+            nonce=x_des_nonce,
+        )
+        if not is_valid or key is None:
+            if error == "rate_limited":
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            raise HTTPException(status_code=401, detail="Invalid signature")
+
+        resource_path = normalize_uid(uid)
+        if not authenticator.check_permission(key, action, resource_path):
+            raise HTTPException(status_code=403, detail="Permission denied")
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -101,8 +157,25 @@ def create_app(settings: HttpRetrieverSettings) -> FastAPI:
         return Response(content=payload, media_type=CONTENT_TYPE_LATEST)
 
     @app.get("/files/{uid}")
-    async def get_file(uid: str, created_at: str) -> Response:
+    async def get_file(
+        uid: str,
+        created_at: str,
+        x_des_public_key: str | None = Header(default=None, alias="X-DES-Public-Key"),
+        x_des_signature: str | None = Header(default=None, alias="X-DES-Signature"),
+        x_des_timestamp: str | None = Header(default=None, alias="X-DES-Timestamp"),
+        x_des_nonce: str | None = Header(default=None, alias="X-DES-Nonce"),
+    ) -> Response:
         """Return raw file bytes for given UID and created_at."""
+
+        _authorize_request(
+            uid=uid,
+            created_at_raw=created_at,
+            action="read",
+            x_des_public_key=x_des_public_key,
+            x_des_signature=x_des_signature,
+            x_des_timestamp=x_des_timestamp,
+            x_des_nonce=x_des_nonce,
+        )
 
         dt = _parse_created_at(created_at)
 
@@ -123,8 +196,22 @@ def create_app(settings: HttpRetrieverSettings) -> FastAPI:
         reason: DeletionReason,
         ticket_id: str | None = None,
         x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+        x_des_public_key: str | None = Header(default=None, alias="X-DES-Public-Key"),
+        x_des_signature: str | None = Header(default=None, alias="X-DES-Signature"),
+        x_des_timestamp: str | None = Header(default=None, alias="X-DES-Timestamp"),
+        x_des_nonce: str | None = Header(default=None, alias="X-DES-Nonce"),
     ) -> dict[str, str]:
         """Mark file as deleted (create tombstone)."""
+
+        _authorize_request(
+            uid=uid,
+            created_at_raw=created_at,
+            action="write",
+            x_des_public_key=x_des_public_key,
+            x_des_signature=x_des_signature,
+            x_des_timestamp=x_des_timestamp,
+            x_des_nonce=x_des_nonce,
+        )
 
         if settings.delete_api_key is None:
             raise HTTPException(status_code=503, detail="Delete API not configured")
@@ -172,8 +259,25 @@ def create_app(settings: HttpRetrieverSettings) -> FastAPI:
         return {"status": "tombstoned"}
 
     @app.put("/files/{uid}/retention-policy")
-    async def set_retention_policy(uid: str, request: RetentionPolicyRequest) -> dict[str, object]:
+    async def set_retention_policy(
+        uid: str,
+        request: RetentionPolicyRequest,
+        x_des_public_key: str | None = Header(default=None, alias="X-DES-Public-Key"),
+        x_des_signature: str | None = Header(default=None, alias="X-DES-Signature"),
+        x_des_timestamp: str | None = Header(default=None, alias="X-DES-Timestamp"),
+        x_des_nonce: str | None = Header(default=None, alias="X-DES-Nonce"),
+    ) -> dict[str, object]:
         """Set or extend retention for a file, copying to extended storage if needed."""
+
+        _authorize_request(
+            uid=uid,
+            created_at_raw=request.created_at.isoformat(),
+            action="extend_retention",
+            x_des_public_key=x_des_public_key,
+            x_des_signature=x_des_signature,
+            x_des_timestamp=x_des_timestamp,
+            x_des_nonce=x_des_nonce,
+        )
 
         if ext_retention_mgr is None:
             raise HTTPException(status_code=503, detail="Extended retention not configured")
@@ -304,6 +408,10 @@ def _find_shard_for_delete(
 def _load_settings_from_env() -> HttpRetrieverSettings:
     backend = os.environ.get("DES_BACKEND", "local").lower()
     n_bits = int(os.environ.get("DES_N_BITS", "8"))
+    auth_path_env = os.environ.get("DES_AUTHORIZED_KEYS_PATH")
+    auth_path = Path(auth_path_env) if auth_path_env else None
+    require_auth_raw = os.environ.get("DES_REQUIRE_AUTHENTICATION", "false").lower()
+    require_auth = require_auth_raw in {"1", "true", "yes", "y"}
 
     if backend == "multi_s3":
         zones_path_env = os.environ.get("DES_ZONES_CONFIG")
@@ -315,6 +423,8 @@ def _load_settings_from_env() -> HttpRetrieverSettings:
             ext_retention_bucket=os.environ.get("DES_EXT_RETENTION_BUCKET"),
             ext_retention_prefix=os.environ.get("DES_EXT_RETENTION_PREFIX", "_ext_retention"),
             delete_api_key=os.environ.get("DES_DELETE_API_KEY"),
+            authorized_keys_path=auth_path,
+            require_authentication=require_auth,
         )
 
     if backend == "s3" or os.environ.get("DES_S3_BUCKET"):
@@ -328,6 +438,8 @@ def _load_settings_from_env() -> HttpRetrieverSettings:
             ext_retention_bucket=os.environ.get("DES_EXT_RETENTION_BUCKET") or os.environ.get("DES_S3_BUCKET"),
             ext_retention_prefix=os.environ.get("DES_EXT_RETENTION_PREFIX", "_ext_retention"),
             delete_api_key=os.environ.get("DES_DELETE_API_KEY"),
+            authorized_keys_path=auth_path,
+            require_authentication=require_auth,
         )
 
     base_dir = Path(os.environ.get("DES_BASE_DIR", "./data/des"))
@@ -339,6 +451,8 @@ def _load_settings_from_env() -> HttpRetrieverSettings:
         ext_retention_bucket=os.environ.get("DES_EXT_RETENTION_BUCKET"),
         ext_retention_prefix=os.environ.get("DES_EXT_RETENTION_PREFIX", "_ext_retention"),
         delete_api_key=os.environ.get("DES_DELETE_API_KEY"),
+        authorized_keys_path=auth_path,
+        require_authentication=require_auth,
     )
 
 
