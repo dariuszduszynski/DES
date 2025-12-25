@@ -18,7 +18,7 @@ from fastapi import FastAPI, Header, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import AnyUrl, BaseModel
 
-from .auth import PublicKeyAuthenticator
+from .auth import create_authenticator_from_env
 from .ext_retention import ExtendedRetentionManager, RetrieverProtocol
 from .metadata_manager import MetadataManager
 from .multi_s3_retriever import MultiS3ShardRetriever
@@ -96,11 +96,12 @@ def create_app(settings: HttpRetrieverSettings) -> FastAPI:
     retriever = build_retriever_from_settings(settings)
     ext_retention_mgr = _build_ext_retention_manager(settings, retriever)
     authenticator = None
-    if settings.authorized_keys_path:
-        authenticator = PublicKeyAuthenticator(settings.authorized_keys_path)
+    try:
+        authenticator = create_authenticator_from_env()
         authenticator.install_signal_handler()
-    elif settings.require_authentication:
-        logger.warning("Authentication required but authorized_keys_path is not configured")
+    except ValueError:
+        if settings.require_authentication:
+            logger.warning("Authentication required but authorized_keys_path is not configured")
 
     def _authorize_request(
         *,
